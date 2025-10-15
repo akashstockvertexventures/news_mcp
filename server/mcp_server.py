@@ -10,7 +10,6 @@ from mcp.server.fastmcp import FastMCP
 from pymongo import MongoClient, DESCENDING
 
 # ===== Widget metadata =====
-# If your host is picky about MIME, you can try "text/html" instead.
 MIME_TYPE = "text/html+skybridge"
 
 
@@ -107,7 +106,7 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
             "default": 10,
         },
     },
-    "required": ["query"],  # allow 'limit' to be omitted; we default it in code
+    "required": ["query"],
 }
 
 
@@ -153,7 +152,6 @@ def _embedded_widget_resource() -> types.EmbeddedResource:
 
 
 def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
-    # enforce 1..50, default 10
     if not isinstance(limit, int):
         limit = 10
     limit = max(1, min(50, limit))
@@ -164,28 +162,42 @@ def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
     projection = {
         "_id": 0,
         "symbolmap.Company_Name": 1,
+        "symbolmap.NSE": 1,
+        "dt_tm": 1,
         "short summary": 1,
         "impact": 1,
         "impact score": 1,
         "sentiment": 1,
         "news link": 1,
-        "dt_tm": 1,
-        "symbolmap.NSE": 1,
     }
 
     cur = coll.find(query or {}, projection).sort("dt_tm", DESCENDING).limit(limit)
     return list(cur)
 
 
+def _normalize_docs(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Flatten and rename Mongo docs to widget-friendly keys."""
+    normalized: List[Dict[str, Any]] = []
+    for d in docs:
+        symbolmap = d.get("symbolmap", {}) or {}
+        normalized.append(
+            {
+                "company": symbolmap.get("Company_Name") or "",
+                "symbol": symbolmap.get("NSE") or "",
+                "dt": d.get("dt_tm"),
+                "summary": d.get("short summary") or "",
+                "impact": d.get("impact"),
+                "score": d.get("impact score"),
+                "sentiment": d.get("sentiment"),
+                "link": d.get("news link") or "",
+            }
+        )
+    return normalized
+
+
 # ===== MCP definitions =====
 @mcp._mcp_server.list_tools()
 async def _list_tools() -> List[types.Tool]:
-    """
-    Tool: news-impact
-
-    Retrieves and renders recent news documents from MongoDB as a Skybridge HTML widget.
-    Accepts a MongoDB-style filter (`query`) and a `limit` (1–50, defaults to 10).
-    """
     return [
         types.Tool(
             name="news-impact",
@@ -247,13 +259,10 @@ async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerR
 async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     args = req.params.arguments or {}
 
-    # 'query' is required; 'limit' is optional (defaults to 10)
     if "query" not in args:
         return types.ServerResult(
             types.CallToolResult(
-                content=[
-                    types.TextContent(type="text", text="Field 'query' is required.")
-                ],
+                content=[types.TextContent(type="text", text="Field 'query' is required.")],
                 isError=True,
             )
         )
@@ -261,13 +270,7 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     query = args.get("query") or {}
     limit = args.get("limit", 10)
 
-    # Validate allowed keys (keep strict to avoid unexpected filters)
-    allowed_keys = {
-        "sentiment",
-        "symbolmap.NSE",
-        "symbolmap.Company_Name",
-        "impact score",
-    }
+    allowed_keys = {"sentiment", "symbolmap.NSE", "symbolmap.Company_Name", "impact score"}
     if not isinstance(query, dict) or any(k not in allowed_keys for k in query.keys()):
         return types.ServerResult(
             types.CallToolResult(
@@ -286,6 +289,7 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
 
     try:
         docs = _fetch_docs(query, int(limit))
+        normalized = _normalize_docs(docs)
     except Exception as e:
         return types.ServerResult(
             types.CallToolResult(
@@ -294,22 +298,21 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
             )
         )
 
-    # Embed the widget HTML so the client can render without separate fetch.
     widget_resource = _embedded_widget_resource()
     meta = {
         "openai.com/widget": widget_resource.model_dump(mode="json"),
         **_tool_meta(),
     }
 
-    # Provide data under both 'docs' and 'items' for template compatibility.
+    # Only return 'items' (no 'docs')
     return types.ServerResult(
         types.CallToolResult(
             content=[
                 types.TextContent(
-                    type="text", text=f"Fetched {len(docs)} item(s) for News Impact."
+                    type="text", text=f"Fetched {len(normalized)} item(s) for News Impact."
                 )
             ],
-            structuredContent={"docs": docs, "items": docs},
+            structuredContent={"items": normalized},
             _meta=meta,
         )
     )
