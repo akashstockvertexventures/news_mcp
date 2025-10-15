@@ -262,7 +262,9 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     if "query" not in args:
         return types.ServerResult(
             types.CallToolResult(
-                content=[types.TextContent(type="text", text="Field 'query' is required.")],
+                content=[
+                    types.TextContent(type="text", text="Field 'query' is required.")
+                ],
                 isError=True,
             )
         )
@@ -299,21 +301,32 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
             )
         )
 
+    # ✅ Embed widget resource correctly
     widget_resource = _embedded_widget_resource()
-    meta = {
-        "openai.com/widget": widget_resource.model_dump(mode="json"),
-        **_tool_meta(),
-    }
+    widget_json = widget_resource.model_dump(mode="json")
 
-    return types.ServerResult(
-        types.CallToolResult(
-            content=[
-                types.TextContent(type="text", text=f"Fetched {len(docs)} item(s) for News Impact.")
-            ],
-            structuredContent={"docs": docs, "items": docs},
-            _meta=meta,
-        )
+    # ✅ Metadata must go INSIDE the CallToolResult
+    call_result = types.CallToolResult(
+        content=[
+            types.TextContent(
+                type="text",
+                text=f"Fetched {len(docs)} item(s) for News Impact."
+            )
+        ],
+        structuredContent={"docs": docs, "items": docs},
+        _meta={
+            "openai.com/widget": widget_json,
+            "openai/outputTemplate": WIDGET.template_uri,
+            "openai/toolInvocation/invoking": WIDGET.invoking,
+            "openai/toolInvocation/invoked": WIDGET.invoked,
+            "openai/widgetAccessible": True,
+            "openai/resultCanProduceWidget": True,
+        },
     )
+
+    # ✅ Wrap the CallToolResult inside a ServerResult
+    return types.ServerResult(call_result)
+
 
 
 # Register handlers
