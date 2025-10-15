@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
@@ -116,9 +117,7 @@ def _load_widget_html() -> str:
     if not os.path.exists(path):
         return (
             "<!doctype html><meta charset='utf-8'><title>News Impact</title>"
-            "<p>index.html not found at: "
-            + path
-            + "</p>"
+            "<p>index.html not found at: " + path + "</p>"
         )
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
@@ -152,6 +151,7 @@ def _embedded_widget_resource() -> types.EmbeddedResource:
 
 
 def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
+    # enforce 1..50, default 10
     if not isinstance(limit, int):
         limit = 10
     limit = max(1, min(50, limit))
@@ -161,35 +161,67 @@ def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
 
     projection = {
         "_id": 0,
-        "symbolmap.Company_Name": 1,
-        "symbolmap.NSE": 1,
-        "dt_tm": 1,
-        "short summary": 1,
-        "impact": 1,
-        "impact score": 1,
-        "sentiment": 1,
-        "news link": 1,
+        "symbolmap.Company_Name": 1,  # -> company
+        "symbolmap.NSE": 1,           # -> symbol
+        "dt_tm": 1,                   # -> dt
+        "short summary": 1,           # -> summary
+        "impact": 1,                  # -> impact
+        "impact score": 1,            # -> score
+        "sentiment": 1,               # -> sentiment
+        "news link": 1,               # -> link
     }
 
     cur = coll.find(query or {}, projection).sort("dt_tm", DESCENDING).limit(limit)
     return list(cur)
 
 
+def _to_iso(dt: Any) -> Optional[str]:
+    """Coerce dt to ISO 8601 string (keeps incoming string if already string)."""
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        return dt
+    if isinstance(dt, datetime):
+        # keep timezone if present
+        return dt.isoformat()
+    try:
+        # last-ditch: attempt to stringify safely
+        return str(dt)
+    except Exception:
+        return None
+
+
+def _to_num_0_10(x: Any) -> Optional[float]:
+    """Best-effort numeric parse; clamp to [0,10]; return None if not parseable."""
+    try:
+        n = float(x)
+        if n < 0:
+            n = 0.0
+        if n > 10:
+            n = 10.0
+        return n
+    except Exception:
+        return None
+
+
 def _normalize_docs(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Flatten and rename Mongo docs to widget-friendly keys."""
+    """
+    Flatten and rename Mongo docs to widget-friendly keys:
+    company, symbol, dt, summary, impact, score, sentiment, link
+    """
     normalized: List[Dict[str, Any]] = []
     for d in docs:
-        symbolmap = d.get("symbolmap", {}) or {}
+        symbolmap = d.get("symbolmap") or {}
         normalized.append(
             {
-                "company": symbolmap.get("Company_Name") or "",
-                "symbol": symbolmap.get("NSE") or "",
-                "dt": d.get("dt_tm"),
-                "summary": d.get("short summary") or "",
-                "impact": d.get("impact"),
-                "score": d.get("impact score"),
-                "sentiment": d.get("sentiment"),
-                "link": d.get("news link") or "",
+                "company": (symbolmap.get("Company_Name") or "").strip(),
+                "symbol": (symbolmap.get("NSE") or "").strip(),
+                "dt": _to_iso(d.get("dt_tm")),
+                "summary": (d.get("short summary") or "").strip(),
+                "impact": (d.get("impact") or "").strip(),
+                "score": _to_num_0_10(d.get("impact score")),
+                "sentiment": (d.get("sentiment") or "").strip() or "Neutral",
+                "link": (d.get("news link") or "").strip(),
             }
         )
     return normalized
@@ -259,6 +291,7 @@ async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerR
 async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     args = req.params.arguments or {}
 
+    # 'query' is required; 'limit' is optional (defaults to 10)
     if "query" not in args:
         return types.ServerResult(
             types.CallToolResult(
@@ -270,7 +303,13 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     query = args.get("query") or {}
     limit = args.get("limit", 10)
 
-    allowed_keys = {"sentiment", "symbolmap.NSE", "symbolmap.Company_Name", "impact score"}
+    # Validate allowed keys (strict)
+    allowed_keys = {
+        "sentiment",
+        "symbolmap.NSE",
+        "symbolmap.Company_Name",
+        "impact score",
+    }
     if not isinstance(query, dict) or any(k not in allowed_keys for k in query.keys()):
         return types.ServerResult(
             types.CallToolResult(
@@ -289,7 +328,7 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
 
     try:
         docs = _fetch_docs(query, int(limit))
-        normalized = _normalize_docs(docs)
+        items = _normalize_docs(docs)
     except Exception as e:
         return types.ServerResult(
             types.CallToolResult(
@@ -298,21 +337,23 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
             )
         )
 
+    # Embed widget HTML so the client can render without a separate fetch.
     widget_resource = _embedded_widget_resource()
     meta = {
         "openai.com/widget": widget_resource.model_dump(mode="json"),
         **_tool_meta(),
     }
 
-    # Only return 'items' (no 'docs')
+    # Return ONLY items, to be rendered by the widget.
     return types.ServerResult(
         types.CallToolResult(
             content=[
                 types.TextContent(
-                    type="text", text=f"Fetched {len(normalized)} item(s) for News Impact."
+                    type="text",
+                    text=f"Fetched {len(items)} item(s) for News Impact.",
                 )
             ],
-            structuredContent={"items": normalized},
+            structuredContent={"items": items},
             _meta=meta,
         )
     )
