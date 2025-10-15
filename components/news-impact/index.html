@@ -70,7 +70,7 @@
   </div>
 
   <script>
-    // utilities
+    // ---------- utilities ----------
     const $ = sel => document.querySelector(sel);
     function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
     function sentimentClass(s){ const t=String(s||"").toLowerCase(); if(t.includes("pos"))return"pos"; if(t.includes("neg"))return"neg"; return"neu"; }
@@ -79,7 +79,7 @@
     function fmtDate(dt){ try { return new Date(dt).toLocaleString(); } catch { return String(dt ?? ""); } }
     function show(id, on){ const el=$(id); if(!el) return; el.classList.toggle("active", !!on); if(id==="#controls") el.setAttribute("aria-hidden", on? "false":"true"); }
 
-    // rendering (expects ONLY the flat keys from Python)
+    // ---------- rendering ----------
     function buildCard(doc){
       const company   = doc?.company ?? "";
       const symbol    = doc?.symbol ?? "";
@@ -124,7 +124,7 @@
       (Array.isArray(list) ? list : []).forEach(d => host.appendChild(buildCard(d)));
     }
 
-    // state transitions
+    // ---------- state transitions ----------
     function onItems(items){
       if (Array.isArray(items) && items.length){
         render(items);
@@ -133,7 +133,6 @@
         show("#carousel", true);
         show("#controls", true);
       } else {
-        // finished but no results
         show("#loading", false);
         show("#carousel", false);
         show("#controls", false);
@@ -141,13 +140,19 @@
       }
     }
 
-    // wiring: STRICTLY wait for structuredContent.items
-    function tryInitOnceFromStructuredContent(){
+    // ---------- wiring: read from all standard places + subscribe ----------
+    async function readItemsOnce() {
       try {
-        const sc = window.structuredContent;
-        if (sc && Array.isArray(sc.items)) { onItems(sc.items); return true; }
+        if (Array.isArray(window?.structuredContent?.items)) return window.structuredContent.items;
+        if (Array.isArray(window?.openai?.structuredContent?.items)) return window.openai.structuredContent.items;
+        if (typeof window?.openai?.getStructuredContent === "function") {
+          const sc = await window.openai.getStructuredContent();
+          if (Array.isArray(sc?.items)) return sc.items;
+        }
+        if (Array.isArray(window?.globals?.items)) return window.globals.items;
+        if (Array.isArray(window?.items)) return window.items;
       } catch {}
-      return false;
+      return null;
     }
 
     function attachOpenAIBridge(){
@@ -157,17 +162,30 @@
           if (sc && Array.isArray(sc.items)) onItems(sc.items);
         });
       }
+      if (typeof window.openai.onGlobalsChanged === "function") {
+        window.openai.onGlobalsChanged((globals) => {
+          if (globals && Array.isArray(globals.items)) onItems(globals.items);
+        });
+      }
     }
 
-    // boot: NO demos, NO REST fallback — ONLY real items from MCP
-    (function init(){
+    // ---------- boot: listeners + immediate hydrate + short retry ----------
+    (async function init(){
       attachOpenAIBridge();
-      // render immediately if the host injected items before bridge is ready
-      if (tryInitOnceFromStructuredContent()) return;
-      // remain in "loading" until items arrive or the tool returns empty
+
+      const first = await readItemsOnce();
+      if (Array.isArray(first)) { onItems(first); return; }
+
+      let tries = 5;
+      const tick = async () => {
+        const data = await readItemsOnce();
+        if (Array.isArray(data)) { onItems(data); return; }
+        if (--tries > 0) setTimeout(tick, 200);
+      };
+      setTimeout(tick, 200);
     })();
 
-    // controls
+    // ---------- controls ----------
     function cardWidth(){
       const host = $("#carousel");
       const first = host.querySelector(".item");
