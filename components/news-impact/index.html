@@ -59,25 +59,33 @@
   </div>
 
   <script>
-    // Fallback local docs (for standalone demo). In Apps SDK, globals.docs will override this.
-    const docs = [
+    // ----------------------------
+    // Demo data (local fallback)
+    // ----------------------------
+    const demoDocs = [
       { "symbolmap": {"Company_Name":"Sample Co 1"}, "news link":"#", "impact":"Impact text 1", "impact score":6, "sentiment":"Positive", "short summary":"Short summary 1" },
       { "symbolmap": {"Company_Name":"Sample Co 2"}, "news link":"#", "impact":"Impact text 2", "impact score":5, "sentiment":"Neutral", "short summary":"Short summary 2" }
     ];
 
+    // ----------------------------
+    // Utilities
+    // ----------------------------
     const $ = sel => document.querySelector(sel);
     function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
     function sentimentClass(s){ const t=String(s||"").toLowerCase(); if(t.includes("pos"))return"pos"; if(t.includes("neg"))return"neg"; return"neu"; }
     function clampScore(x){ const n=Number(x); return Number.isFinite(n)?Math.max(0,Math.min(10,n)):0; }
     function pct(score){ return `${score*10}%`; }
 
+    // ----------------------------
+    // Rendering
+    // ----------------------------
     function buildCard(doc){
-      const company  = doc?.symbolmap?.Company_Name ?? "";
-      const newsUrl  = doc?.["news link"] ?? "#";
-      const impact   = doc?.impact ?? "";
-      const score    = clampScore(doc?.["impact score"]);
-      const sentiment= doc?.sentiment ?? "Neutral";
-      const summary  = doc?.["short summary"] ?? "";
+      const company   = doc?.symbolmap?.Company_Name ?? "";
+      const newsUrl   = doc?.["news link"] ?? "#";
+      const impact    = doc?.impact ?? "";
+      const score     = clampScore(doc?.["impact score"]);
+      const sentiment = doc?.sentiment ?? "Neutral";
+      const summary   = doc?.["short summary"] ?? "";
 
       const item = document.createElement("div"); item.className = "item";
       item.innerHTML = `
@@ -104,47 +112,110 @@
       return item;
     }
 
-    function render(list){ const host = $("#carousel"); host.innerHTML=""; list.forEach(d=> host.appendChild(buildCard(d))); }
+    function render(list){
+      const host = $("#carousel");
+      host.innerHTML = "";
+      (Array.isArray(list) ? list : []).forEach(d => host.appendChild(buildCard(d)));
+    }
 
-    // 1) If served by FastAPI, fetch from /api/news using URL params (?sentiment=Positive&limit=10)
-    async function tryFetchFromApi(){
+    // ----------------------------
+    // Data sources
+    // ----------------------------
+
+    // A) MCP: read from structuredContent.docs immediately (once)
+    function tryRenderFromStructuredContentOnce(){
       try {
-        const url = new URL(window.location.href);
-        const qs = url.search; // pass through any filters
-        const res = await fetch(`/api/news${qs}`);
-        if(res.ok){
-          const data = await res.json();
-          if(Array.isArray(data) && data.length){ render(data); return true; }
+        const sc = window.structuredContent;
+        if (Array.isArray(sc?.docs) && sc.docs.length){
+          render(sc.docs);
+          return true;
         }
-      } catch(e){ /* ignore */ }
+        // Back-compat: allow "items" too
+        if (Array.isArray(sc?.items) && sc.items.length){
+          render(sc.items);
+          return true;
+        }
+      } catch {}
       return false;
     }
 
-    // 2) Apps SDK bridge: prefer globals.docs if available
+    // B) Subscribe to SDK bridges (MCP + legacy)
     function attachOpenAIBridge(){
-      if (window.openai && typeof window.openai.onGlobalsChanged === "function") {
+      if (!window.openai) return;
+
+      // Preferred in MCP/Skybridge
+      if (typeof window.openai.onStructuredContentChanged === "function") {
+        window.openai.onStructuredContentChanged((sc) => {
+          if (Array.isArray(sc?.docs)) render(sc.docs);
+          else if (Array.isArray(sc?.items)) render(sc.items);
+        });
+      }
+
+      // Legacy/globals path
+      if (typeof window.openai.onGlobalsChanged === "function") {
         window.openai.onGlobalsChanged((globals) => {
-          if (globals?.docs) render(globals.docs);
+          if (Array.isArray(globals?.docs)) render(globals.docs);
         });
       }
     }
 
+    // C) Optional REST fallback for local dev
+    async function tryFetchFromApi(){
+      try {
+        const url = new URL(window.location.href);
+        const qs = url.search; // pass through any filters
+        const res = await fetch(`/api/news${qs}`, { headers: { "accept": "application/json" } });
+        if(res.ok){
+          const data = await res.json();
+          if(Array.isArray(data) && data.length){ render(data); return true; }
+        }
+      } catch {}
+      return false;
+    }
+
+    // ----------------------------
     // Boot
+    // ----------------------------
     (async () => {
       attachOpenAIBridge();
-      const ok = await tryFetchFromApi();
-      if(!ok) render(window.docs || docs);
+
+      // 1) First, prefer MCP structured content
+      if (tryRenderFromStructuredContentOnce()) return;
+
+      // 2) Then, try REST (useful locally; not used by MCP flow)
+      if (await tryFetchFromApi()) return;
+
+      // 3) Finally, fall back to globals or demo data
+      const initial =
+        (window.globals && Array.isArray(window.globals.docs) && window.globals.docs) ||
+        (window.docs && Array.isArray(window.docs) && window.docs) ||
+        demoDocs;
+
+      render(initial);
     })();
 
-    // Controls
-    function cardWidth(){ const host = $("#carousel"); const first = host.querySelector(".item"); if(!first) return 400; const gap = parseInt(getComputedStyle(host).gap||"16",10); return first.getBoundingClientRect().width + gap; }
-    function smoothScroll(dir){ const host = $("#carousel"); host.scrollBy({left: dir * cardWidth(), behavior: "smooth"}); }
+    // ----------------------------
+    // Controls (scroll + drag)
+    // ----------------------------
+    function cardWidth(){
+      const host = $("#carousel");
+      const first = host.querySelector(".item");
+      if(!first) return 400;
+      const gap = parseInt(getComputedStyle(host).gap||"16",10);
+      return first.getBoundingClientRect().width + gap;
+    }
+    function smoothScroll(dir){
+      const host = $("#carousel");
+      host.scrollBy({left: dir * cardWidth(), behavior: "smooth"});
+    }
     $("#nextBtn").addEventListener("click", ()=> smoothScroll(1));
     $("#prevBtn").addEventListener("click", ()=> smoothScroll(-1));
-    const host = $("#carousel"); let isDown=false, startX=0, startScroll=0;
+    const host = $("#carousel");
+    let isDown=false, startX=0, startScroll=0;
     host.addEventListener("pointerdown",(e)=>{isDown=true;startX=e.clientX;startScroll=host.scrollLeft;host.setPointerCapture(e.pointerId);});
     host.addEventListener("pointermove",(e)=>{ if(!isDown) return; const dx=e.clientX-startX; host.scrollLeft=startScroll-dx; });
-    host.addEventListener("pointerup",()=>{isDown=false;}); host.addEventListener("pointercancel",()=>{isDown=false;});
+    host.addEventListener("pointerup",()=>{isDown=false;});
+    host.addEventListener("pointercancel",()=>{isDown=false;});
   </script>
 </body>
 </html>
