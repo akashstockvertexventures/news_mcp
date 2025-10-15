@@ -1,5 +1,6 @@
 pymongo==4.9.1
 pydantic==2.9.2
-mcp==1.0.0
-uvicorn
 starlette
+mcp[fastapi]>=0.1.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
