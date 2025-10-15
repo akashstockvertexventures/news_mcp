@@ -2,26 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>News Impact – Standalone Carousel</title>
+  <title>News Impact – Carousel</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
-      --bg: #f7f8fb;
-      --card: #ffffff;
-      --ink: #0f172a;
-      --muted: #64748b;
-      --ring: rgba(14,165,233,.25);
-      --border: #e5e7eb;
-      --btn: #0ea5e9;
-      --pos: #059669;
-      --neu: #64748b;
-      --neg: #dc2626;
+      --bg:#f7f8fb; --card:#fff; --ink:#0f172a; --muted:#64748b; --ring:rgba(14,165,233,.25);
+      --border:#e5e7eb; --btn:#0ea5e9; --pos:#059669; --neu:#64748b; --neg:#dc2626;
     }
     *{box-sizing:border-box}
     html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
     .wrap{max-width:1152px;margin:24px auto;padding:0 16px}
     h1{margin:0 0 8px;font-size:clamp(22px,2.2vw,28px)}
     .hint{color:var(--muted);margin-bottom:18px}
+
+    /* states */
+    .state{display:none}
+    .state.active{display:block}
+    .loading{color:var(--muted);display:flex;align-items:center;gap:10px}
+    .spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--btn);border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .empty{color:var(--muted);padding:12px;border:1px dashed var(--border);border-radius:12px;background:#f8fafc}
+
+    /* carousel */
     .carousel{position:relative;display:grid;grid-auto-flow:column;gap:16px;overflow:auto;scroll-snap-type:x mandatory;padding:2px 2px 10px;-webkit-overflow-scrolling:touch;}
     .carousel::-webkit-scrollbar{height:10px}
     .carousel::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
@@ -52,37 +54,32 @@
   <div class="wrap">
     <h1>News Impact</h1>
     <div class="hint">company • symbol • dt • sentiment • impact • score • summary • link</div>
-    <div class="controls" aria-hidden="false">
+
+    <!-- loading / empty states -->
+    <div id="loading" class="state loading active"><span class="spinner"></span> <span>Fetching news…</span></div>
+    <div id="empty" class="state empty">No results. Try a broader query or different filters.</div>
+
+    <!-- controls are hidden until we have items -->
+    <div id="controls" class="controls state" aria-hidden="true">
       <button class="nav" id="prevBtn" aria-label="Previous">⟵ Prev</button>
       <button class="nav" id="nextBtn" aria-label="Next">Next ⟶</button>
     </div>
-    <div id="carousel" class="carousel" aria-label="News Impact Carousel" tabindex="0"></div>
+
+    <!-- carousel hidden until we have items -->
+    <div id="carousel" class="carousel state" aria-label="News Impact Carousel" tabindex="0"></div>
   </div>
 
   <script>
-    // ----------------------------
-    // Demo data (local fallback) — NEW FLAT KEYS
-    // ----------------------------
-    const demoItems = [
-      { company:"Sample Co 1", symbol:"SMP1", dt:"2025-10-01T10:00:00Z", summary:"Short summary 1", impact:"Impact text 1", score:6, sentiment:"Positive", link:"#"},
-      { company:"Sample Co 2", symbol:"SMP2", dt:"2025-10-02T09:30:00Z", summary:"Short summary 2", impact:"Impact text 2", score:5, sentiment:"Neutral", link:"#"}
-    ];
-
-    // ----------------------------
-    // Utilities
-    // ----------------------------
+    // utilities
     const $ = sel => document.querySelector(sel);
     function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
     function sentimentClass(s){ const t=String(s||"").toLowerCase(); if(t.includes("pos"))return"pos"; if(t.includes("neg"))return"neg"; return"neu"; }
     function clampScore(x){ const n=Number(x); return Number.isFinite(n)?Math.max(0,Math.min(10,n)):0; }
     function pct(score){ return `${clampScore(score)*10}%`; }
-    function fmtDate(dt){
-      try { return new Date(dt).toLocaleString(); } catch { return String(dt ?? ""); }
-    }
+    function fmtDate(dt){ try { return new Date(dt).toLocaleString(); } catch { return String(dt ?? ""); } }
+    function show(id, on){ const el=$(id); if(!el) return; el.classList.toggle("active", !!on); if(id==="#controls") el.setAttribute("aria-hidden", on? "false":"true"); }
 
-    // ----------------------------
-    // Rendering (expects NEW KEYS)
-    // ----------------------------
+    // rendering (expects ONLY the flat keys from Python)
     function buildCard(doc){
       const company   = doc?.company ?? "";
       const symbol    = doc?.symbol ?? "";
@@ -103,11 +100,8 @@
             </div>
             <div class="muted">${esc(symbol)} • ${esc(fmtDate(when))}</div>
           </div>
-
           <div class="summary">${esc(summary)}</div>
-
           <div class="impact"><b>Impact:</b> <span>${esc(impact)}</span></div>
-
           <div>
             <div class="score-head">
               <div class="muted">Impact score</div>
@@ -117,7 +111,6 @@
               <div class="score-bar" style="width:${pct(score)}"></div>
             </div>
           </div>
-
           <div class="row" style="justify-content:space-between;margin-top:6px">
             <a class="btn" href="${encodeURI(newsUrl)}" target="_blank" rel="noopener noreferrer">Open news link</a>
           </div>
@@ -131,78 +124,50 @@
       (Array.isArray(list) ? list : []).forEach(d => host.appendChild(buildCard(d)));
     }
 
-    // ----------------------------
-    // Data sources — ITEMS ONLY
-    // ----------------------------
+    // state transitions
+    function onItems(items){
+      if (Array.isArray(items) && items.length){
+        render(items);
+        show("#loading", false);
+        show("#empty", false);
+        show("#carousel", true);
+        show("#controls", true);
+      } else {
+        // finished but no results
+        show("#loading", false);
+        show("#carousel", false);
+        show("#controls", false);
+        show("#empty", true);
+      }
+    }
 
-    // A) Try a one-shot render from structuredContent.items
-    function tryRenderFromStructuredContentOnce(){
+    // wiring: STRICTLY wait for structuredContent.items
+    function tryInitOnceFromStructuredContent(){
       try {
         const sc = window.structuredContent;
-        if (Array.isArray(sc?.items) && sc.items.length){
-          render(sc.items);
-          return true;
-        }
+        if (sc && Array.isArray(sc.items)) { onItems(sc.items); return true; }
       } catch {}
       return false;
     }
 
-    // B) Subscribe to SDK bridge for items
     function attachOpenAIBridge(){
       if (!window.openai) return;
-
       if (typeof window.openai.onStructuredContentChanged === "function") {
         window.openai.onStructuredContentChanged((sc) => {
-          if (Array.isArray(sc?.items)) render(sc.items);
-        });
-      }
-
-      // Optional legacy: globals.items
-      if (typeof window.openai.onGlobalsChanged === "function") {
-        window.openai.onGlobalsChanged((globals) => {
-          if (Array.isArray(globals?.items)) render(globals.items);
+          if (sc && Array.isArray(sc.items)) onItems(sc.items);
         });
       }
     }
 
-    // C) Optional REST fallback for local dev (expects items array)
-    async function tryFetchFromApi(){
-      try {
-        const url = new URL(window.location.href);
-        const qs = url.search;
-        const res = await fetch(`/api/news${qs}`, { headers: { "accept": "application/json" } });
-        if(res.ok){
-          const data = await res.json();
-          if(Array.isArray(data) && data.length){ render(data); return true; }
-        }
-      } catch {}
-      return false;
-    }
-
-    // ----------------------------
-    // Boot
-    // ----------------------------
-    (async () => {
+    // boot: NO demos, NO REST fallback — ONLY real items from MCP
+    (function init(){
       attachOpenAIBridge();
-
-      // 1) Prefer MCP structured content (items)
-      if (tryRenderFromStructuredContentOnce()) return;
-
-      // 2) Then, try REST (dev)
-      if (await tryFetchFromApi()) return;
-
-      // 3) Finally, fallback to globals.items or demo
-      const initial =
-        (window.globals && Array.isArray(window.globals.items) && window.globals.items) ||
-        (window.items && Array.isArray(window.items) && window.items) ||
-        demoItems;
-
-      render(initial);
+      // render immediately if the host injected items before bridge is ready
+      if (tryInitOnceFromStructuredContent()) return;
+      // remain in "loading" until items arrive or the tool returns empty
     })();
 
-    // ----------------------------
-    // Controls (scroll + drag)
-    // ----------------------------
+    // controls
     function cardWidth(){
       const host = $("#carousel");
       const first = host.querySelector(".item");
@@ -216,6 +181,7 @@
     }
     $("#nextBtn").addEventListener("click", ()=> smoothScroll(1));
     $("#prevBtn").addEventListener("click", ()=> smoothScroll(-1));
+
     const host = $("#carousel");
     let isDown=false, startX=0, startScroll=0;
     host.addEventListener("pointerdown",(e)=>{isDown=true;startX=e.clientX;startScroll=host.scrollLeft;host.setPointerCapture(e.pointerId);});
