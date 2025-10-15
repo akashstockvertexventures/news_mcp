@@ -124,13 +124,12 @@ def _load_widget_html() -> str:
         return f.read()
 
 
-def _tool_meta() -> Dict[str, Any]:
+def _tool_meta_base() -> Dict[str, Any]:
+    # Base meta; do NOT set widgetAccessible true by default.
     return {
         "openai/outputTemplate": WIDGET.template_uri,
         "openai/toolInvocation/invoking": WIDGET.invoking,
         "openai/toolInvocation/invoked": WIDGET.invoked,
-        "openai/widgetAccessible": True,
-        "openai/resultCanProduceWidget": True,
         "annotations": {
             "destructiveHint": False,
             "openWorldHint": False,
@@ -198,47 +197,31 @@ def _normalize_docs(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # ===== MCP definitions =====
 @mcp._mcp_server.list_tools()
 async def _list_tools() -> List[types.Tool]:
+    # Only advertise the tool; do NOT advertise resources/templates.
     return [
         types.Tool(
             name="news-impact",
             title=WIDGET.title,
             description="Render the News Impact carousel using a MongoDB query and limit.",
             inputSchema=NEWS_QUERY_SCHEMA,
-            _meta=_tool_meta(),
+            _meta=_tool_meta_base(),
         )
     ]
 
 
-@mcp._mcp_server.list_resources()
-async def _list_resources() -> List[types.Resource]:
-    return [
-        types.Resource(
-            name=WIDGET.title,
-            title=WIDGET.title,
-            uri=WIDGET.template_uri,
-            description="News Impact widget HTML",
-            mimeType=MIME_TYPE,
-            _meta=_tool_meta(),
-        )
-    ]
-
-
-@mcp._mcp_server.list_resource_templates()
-async def _list_resource_templates() -> List[types.ResourceTemplate]:
-    return [
-        types.ResourceTemplate(
-            name=WIDGET.title,
-            title=WIDGET.title,
-            uriTemplate=WIDGET.template_uri,
-            description="News Impact widget HTML",
-            mimeType=MIME_TYPE,
-            _meta=_tool_meta(),
-        )
-    ]
+# NOTE: Do NOT list resources/templates to avoid early UI render.
+# @mcp._mcp_server.list_resources()
+# async def _list_resources() -> List[types.Resource]:
+#     return []
+#
+# @mcp._mcp_server.list_resource_templates()
+# async def _list_resource_templates() -> List[types.ResourceTemplate]:
+#     return []
 
 
 # ===== Handlers =====
 async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerResult:
+    # Not used unless a client explicitly reads by URI. Safe to keep.
     if str(req.params.uri) != WIDGET.template_uri:
         return types.ServerResult(
             types.ReadResourceResult(
@@ -250,7 +233,7 @@ async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerR
             uri=WIDGET.template_uri,
             mimeType=MIME_TYPE,
             text=_load_widget_html(),
-            _meta=_tool_meta(),
+            _meta=_tool_meta_base(),
         )
     ]
     return types.ServerResult(types.ReadResourceResult(contents=contents))
@@ -300,11 +283,18 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
 
     widget_resource = _embedded_widget_resource()
     meta = {
+        # Embed the widget HTML only in the tool result:
         "openai.com/widget": widget_resource.model_dump(mode="json"),
-        **_tool_meta(),
+        # Enable widget rendering now (and only now)
+        "openai/widgetAccessible": True,
+        "openai/resultCanProduceWidget": True,
+        "openai/toolInvocation/invoking": WIDGET.invoking,
+        "openai/toolInvocation/invoked": WIDGET.invoked,
+        # Optional stable identifier to help hydration if host uses it:
+        "openai/widgetId": WIDGET.identifier,
+        **_tool_meta_base(),
     }
 
-    # Only return 'items' (no 'docs')
     return types.ServerResult(
         types.CallToolResult(
             content=[
