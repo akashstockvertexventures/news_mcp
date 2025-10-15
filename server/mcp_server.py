@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import json
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
@@ -11,7 +10,9 @@ from mcp.server.fastmcp import FastMCP
 from pymongo import MongoClient, DESCENDING
 
 # ===== Widget metadata =====
+# If your host is picky about MIME, you can try "text/html" instead.
 MIME_TYPE = "text/html+skybridge"
+
 
 @dataclass(frozen=True)
 class NewsWidget:
@@ -22,18 +23,21 @@ class NewsWidget:
     invoked: str
     html_path: str
 
+
 WIDGET = NewsWidget(
     identifier="news-impact",
     title="News Impact Carousel",
     template_uri="ui://widget/news-impact.html",
     invoking="Rendering News Impact",
     invoked="News Impact ready",
-    html_path=os.path.join(os.path.dirname(__file__), "..", "components", "news-impact", "index.html"),
+    html_path=os.path.join(
+        os.path.dirname(__file__), "..", "components", "news-impact", "index.html"
+    ),
 )
 
 # ===== Mongo config =====
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
-DB_NAME   = os.environ.get("MONGO_DB", "newsdb")
+DB_NAME = os.environ.get("MONGO_DB", "newsdb")
 COLL_NAME = os.environ.get("MONGO_COLL", "news")
 
 # ===== FastMCP app =====
@@ -48,7 +52,7 @@ mcp = FastMCP(
 NEWS_QUERY_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "title": "NewsImpactMongoQueryWithLimit",
-    "description": "Return a MongoDB query object (under 'query') and a limit (1–50). Results are always sorted by dt_tm in descending order.",
+    "description": "Return a MongoDB query object (under 'query') and a limit (1–50). Results are sorted by dt_tm desc.",
     "properties": {
         "query": {
             "type": "object",
@@ -57,55 +61,69 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
                 "sentiment": {
                     "type": "string",
                     "enum": ["Positive", "Neutral", "Negative"],
-                    "description": "Sentiment tone of the news item."
+                    "description": "Sentiment tone of the news item.",
                 },
                 "symbolmap.NSE": {
                     "type": "string",
-                    "description": "Exact NSE code for the company, e.g., RELIANCE, TCS."
+                    "description": "Exact NSE code for the company, e.g., RELIANCE, TCS.",
                 },
                 "symbolmap.Company_Name": {
                     "type": "object",
                     "description": "Case-insensitive substring match for the company name.",
                     "properties": {
-                        "$regex": { "type": "string", "description": "Substring to match within the company name." },
-                        "$options": { "type": "string", "enum": ["i"], "description": "Must always be 'i' for case-insensitive match." }
+                        "$regex": {
+                            "type": "string",
+                            "description": "Substring to match within the company name.",
+                        },
+                        "$options": {
+                            "type": "string",
+                            "enum": ["i"],
+                            "description": "Must be 'i' for case-insensitive match.",
+                        },
                     },
-                    "required": ["$regex", "$options"]
+                    "required": ["$regex", "$options"],
                 },
                 "impact score": {
                     "type": "object",
                     "description": "Numeric impact score filter using MongoDB comparison operators.",
                     "properties": {
-                        "$gt":  { "type": "number", "description": "Greater than value." },
-                        "$gte": { "type": "number", "description": "Greater than or equal to value." },
-                        "$lt":  { "type": "number", "description": "Less than value." },
-                        "$lte": { "type": "number", "description": "Less than or equal to value." },
-                        "$eq":  { "type": "number", "description": "Equal to value." }
+                        "$gt": {"type": "number"},
+                        "$gte": {"type": "number"},
+                        "$lt": {"type": "number"},
+                        "$lte": {"type": "number"},
+                        "$eq": {"type": "number"},
                     },
                     "minProperties": 1,
-                    "maxProperties": 2
-                }
+                    "maxProperties": 2,
+                },
             },
-            "additionalProperties": False
+            "additionalProperties": False,
         },
         "limit": {
             "type": "integer",
             "description": "Maximum number of documents to return (1–50). Default = 10.",
             "minimum": 1,
             "maximum": 50,
-            "default": 10
-        }
+            "default": 10,
+        },
     },
-    "required": ["query", "limit"]
+    "required": ["query"],  # allow 'limit' to be omitted; we default it in code
 }
+
 
 # ===== Helpers =====
 def _load_widget_html() -> str:
     path = os.path.abspath(WIDGET.html_path)
     if not os.path.exists(path):
-        return "<!doctype html><meta charset='utf-8'><title>News Impact</title><p>index.html not found.</p>"
+        return (
+            "<!doctype html><meta charset='utf-8'><title>News Impact</title>"
+            "<p>index.html not found at: "
+            + path
+            + "</p>"
+        )
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
+
 
 def _tool_meta() -> Dict[str, Any]:
     return {
@@ -121,6 +139,7 @@ def _tool_meta() -> Dict[str, Any]:
         },
     }
 
+
 def _embedded_widget_resource() -> types.EmbeddedResource:
     return types.EmbeddedResource(
         type="resource",
@@ -131,6 +150,7 @@ def _embedded_widget_resource() -> types.EmbeddedResource:
             title=WIDGET.title,
         ),
     )
+
 
 def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
     # enforce 1..50, default 10
@@ -150,14 +170,12 @@ def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
         "sentiment": 1,
         "news link": 1,
         "dt_tm": 1,
+        "symbolmap.NSE": 1,
     }
 
-    cur = (
-        coll.find(query or {}, projection)
-            .sort("dt_tm", DESCENDING)
-            .limit(limit)
-    )
+    cur = coll.find(query or {}, projection).sort("dt_tm", DESCENDING).limit(limit)
     return list(cur)
+
 
 # ===== MCP definitions =====
 @mcp._mcp_server.list_tools()
@@ -165,27 +183,8 @@ async def _list_tools() -> List[types.Tool]:
     """
     Tool: news-impact
 
-    Description:
-        Retrieves and renders recent news documents from the MongoDB collection
-        as a Skybridge HTML carousel widget. The tool accepts a MongoDB-style
-        filter (`query`) and a `limit` (1–50). Results are always sorted by
-        `dt_tm` in descending order.
-
-    Input JSON structure:
-        {
-          "query": {
-            "sentiment": "Positive",
-            "symbolmap.NSE": "RELIANCE",
-            "impact score": { "$gte": 7 }
-          },
-          "limit": 10
-        }
-
-    Notes:
-        - `query` may be empty {} to fetch all news.
-        - `limit` defaults to 10 if not provided.
-        - Sorting by `dt_tm` is fixed and not configurable.
-        - Returned results automatically populate the News Impact HTML widget.
+    Retrieves and renders recent news documents from MongoDB as a Skybridge HTML widget.
+    Accepts a MongoDB-style filter (`query`) and a `limit` (1–50, defaults to 10).
     """
     return [
         types.Tool(
@@ -196,6 +195,7 @@ async def _list_tools() -> List[types.Tool]:
             _meta=_tool_meta(),
         )
     ]
+
 
 @mcp._mcp_server.list_resources()
 async def _list_resources() -> List[types.Resource]:
@@ -210,6 +210,7 @@ async def _list_resources() -> List[types.Resource]:
         )
     ]
 
+
 @mcp._mcp_server.list_resource_templates()
 async def _list_resource_templates() -> List[types.ResourceTemplate]:
     return [
@@ -223,11 +224,14 @@ async def _list_resource_templates() -> List[types.ResourceTemplate]:
         )
     ]
 
+
 # ===== Handlers =====
 async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerResult:
     if str(req.params.uri) != WIDGET.template_uri:
         return types.ServerResult(
-            types.ReadResourceResult(contents=[], _meta={"error": f"Unknown resource: {req.params.uri}"})
+            types.ReadResourceResult(
+                contents=[], _meta={"error": f"Unknown resource: {req.params.uri}"}
+            )
         )
     contents = [
         types.TextResourceContents(
@@ -239,12 +243,17 @@ async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerR
     ]
     return types.ServerResult(types.ReadResourceResult(contents=contents))
 
+
 async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     args = req.params.arguments or {}
-    if "query" not in args or "limit" not in args:
+
+    # 'query' is required; 'limit' is optional (defaults to 10)
+    if "query" not in args:
         return types.ServerResult(
             types.CallToolResult(
-                content=[types.TextContent(type="text", text="Both 'query' and 'limit' are required.")],
+                content=[
+                    types.TextContent(type="text", text="Field 'query' is required.")
+                ],
                 isError=True,
             )
         )
@@ -252,14 +261,25 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     query = args.get("query") or {}
     limit = args.get("limit", 10)
 
-    allowed_keys = {"sentiment", "symbolmap.NSE", "symbolmap.Company_Name", "impact score"}
+    # Validate allowed keys (keep strict to avoid unexpected filters)
+    allowed_keys = {
+        "sentiment",
+        "symbolmap.NSE",
+        "symbolmap.Company_Name",
+        "impact score",
+    }
     if not isinstance(query, dict) or any(k not in allowed_keys for k in query.keys()):
         return types.ServerResult(
             types.CallToolResult(
-                content=[types.TextContent(
-                    type="text",
-                    text="Invalid query keys. Allowed: sentiment, symbolmap.NSE, symbolmap.Company_Name, impact score."
-                )],
+                content=[
+                    types.TextContent(
+                        type="text",
+                        text=(
+                            "Invalid query keys. Allowed: sentiment, symbolmap.NSE, "
+                            "symbolmap.Company_Name, impact score."
+                        ),
+                    )
+                ],
                 isError=True,
             )
         )
@@ -274,19 +294,26 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
             )
         )
 
+    # Embed the widget HTML so the client can render without separate fetch.
     widget_resource = _embedded_widget_resource()
     meta = {
         "openai.com/widget": widget_resource.model_dump(mode="json"),
         **_tool_meta(),
     }
 
+    # Provide data under both 'docs' and 'items' for template compatibility.
     return types.ServerResult(
         types.CallToolResult(
-            content=[types.TextContent(type="text", text=f"Fetched {len(docs)} items.")],
-            structuredContent={"docs": docs},
+            content=[
+                types.TextContent(
+                    type="text", text=f"Fetched {len(docs)} item(s) for News Impact."
+                )
+            ],
+            structuredContent={"docs": docs, "items": docs},
             _meta=meta,
         )
     )
+
 
 # Register handlers
 mcp._mcp_server.request_handlers[types.CallToolRequest] = _call_tool_request
@@ -295,8 +322,10 @@ mcp._mcp_server.request_handlers[types.ReadResourceRequest] = _handle_read_resou
 # Expose ASGI app
 app = mcp.streamable_http_app()
 
+# Optional: CORS for local testing
 try:
     from starlette.middleware.cors import CORSMiddleware
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -309,4 +338,5 @@ except Exception:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("mcp_server:app", host="0.0.0.0", port=8000)
+
+    uvicorn.run("mcp_server:app", host="0.0.0.0", port=8000, reload=False)
