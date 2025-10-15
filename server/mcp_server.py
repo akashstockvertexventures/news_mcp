@@ -27,7 +27,7 @@ class NewsWidget:
 WIDGET = NewsWidget(
     identifier="news-impact",
     title="News Impact Carousel",
-    template_uri="ui://widget/news-impact.html",
+    template_uri="ui://widget/news-impact.html",  # must match HTML below
     invoking="Rendering News Impact",
     invoked="News Impact ready",
     html_path=os.path.join(
@@ -71,15 +71,8 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
                     "type": "object",
                     "description": "Case-insensitive substring match for the company name.",
                     "properties": {
-                        "$regex": {
-                            "type": "string",
-                            "description": "Substring to match within the company name.",
-                        },
-                        "$options": {
-                            "type": "string",
-                            "enum": ["i"],
-                            "description": "Must be 'i' for case-insensitive match.",
-                        },
+                        "$regex": {"type": "string"},
+                        "$options": {"type": "string", "enum": ["i"]},
                     },
                     "required": ["$regex", "$options"],
                 },
@@ -110,7 +103,6 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
     "required": ["query"],
 }
 
-
 # ===== Helpers =====
 def _load_widget_html() -> str:
     path = os.path.abspath(WIDGET.html_path)
@@ -130,11 +122,7 @@ def _tool_meta() -> Dict[str, Any]:
         "openai/toolInvocation/invoked": WIDGET.invoked,
         "openai/widgetAccessible": True,
         "openai/resultCanProduceWidget": True,
-        "annotations": {
-            "destructiveHint": False,
-            "openWorldHint": False,
-            "readOnlyHint": True,
-        },
+        "annotations": {"destructiveHint": False, "openWorldHint": False, "readOnlyHint": True},
     }
 
 
@@ -151,7 +139,6 @@ def _embedded_widget_resource() -> types.EmbeddedResource:
 
 
 def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
-    # enforce 1..50, default 10
     if not isinstance(limit, int):
         limit = 10
     limit = max(1, min(50, limit))
@@ -176,46 +163,34 @@ def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
 
 
 def _to_iso(dt: Any) -> Optional[str]:
-    """Coerce dt to ISO 8601 string (keeps incoming string if already string)."""
     if dt is None:
         return None
     if isinstance(dt, str):
         return dt
     if isinstance(dt, datetime):
-        # keep timezone if present
         return dt.isoformat()
     try:
-        # last-ditch: attempt to stringify safely
         return str(dt)
     except Exception:
         return None
 
 
 def _to_num_0_10(x: Any) -> Optional[float]:
-    """Best-effort numeric parse; clamp to [0,10]; return None if not parseable."""
     try:
         n = float(x)
-        if n < 0:
-            n = 0.0
-        if n > 10:
-            n = 10.0
-        return n
+        return 0.0 if n < 0 else 10.0 if n > 10 else n
     except Exception:
         return None
 
 
 def _normalize_docs(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Flatten and rename Mongo docs to widget-friendly keys:
-    company, symbol, dt, summary, impact, score, sentiment, link
-    """
-    normalized: List[Dict[str, Any]] = []
+    out: List[Dict[str, Any]] = []
     for d in docs:
-        symbolmap = d.get("symbolmap") or {}
-        normalized.append(
+        sm = d.get("symbolmap") or {}
+        out.append(
             {
-                "company": (symbolmap.get("Company_Name") or "").strip(),
-                "symbol": (symbolmap.get("NSE") or "").strip(),
+                "company": (sm.get("Company_Name") or "").strip(),
+                "symbol": (sm.get("NSE") or "").strip(),
                 "dt": _to_iso(d.get("dt_tm")),
                 "summary": (d.get("short summary") or "").strip(),
                 "impact": (d.get("impact") or "").strip(),
@@ -224,7 +199,7 @@ def _normalize_docs(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "link": (d.get("news link") or "").strip(),
             }
         )
-    return normalized
+    return out
 
 
 # ===== MCP definitions =====
@@ -273,9 +248,7 @@ async def _list_resource_templates() -> List[types.ResourceTemplate]:
 async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerResult:
     if str(req.params.uri) != WIDGET.template_uri:
         return types.ServerResult(
-            types.ReadResourceResult(
-                contents=[], _meta={"error": f"Unknown resource: {req.params.uri}"}
-            )
+            types.ReadResourceResult(contents=[], _meta={"error": f"Unknown resource: {req.params.uri}"})
         )
     contents = [
         types.TextResourceContents(
@@ -291,7 +264,6 @@ async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerR
 async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     args = req.params.arguments or {}
 
-    # 'query' is required; 'limit' is optional (defaults to 10)
     if "query" not in args:
         return types.ServerResult(
             types.CallToolResult(
@@ -303,23 +275,14 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     query = args.get("query") or {}
     limit = args.get("limit", 10)
 
-    # Validate allowed keys (strict)
-    allowed_keys = {
-        "sentiment",
-        "symbolmap.NSE",
-        "symbolmap.Company_Name",
-        "impact score",
-    }
-    if not isinstance(query, dict) or any(k not in allowed_keys for k in query.keys()):
+    allowed = {"sentiment", "symbolmap.NSE", "symbolmap.Company_Name", "impact score"}
+    if not isinstance(query, dict) or any(k not in allowed for k in query.keys()):
         return types.ServerResult(
             types.CallToolResult(
                 content=[
                     types.TextContent(
                         type="text",
-                        text=(
-                            "Invalid query keys. Allowed: sentiment, symbolmap.NSE, "
-                            "symbolmap.Company_Name, impact score."
-                        ),
+                        text="Invalid query keys. Allowed: sentiment, symbolmap.NSE, symbolmap.Company_Name, impact score.",
                     )
                 ],
                 isError=True,
@@ -331,29 +294,16 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
         items = _normalize_docs(docs)
     except Exception as e:
         return types.ServerResult(
-            types.CallToolResult(
-                content=[types.TextContent(type="text", text=f"Query error: {e}")],
-                isError=True,
-            )
+            types.CallToolResult(content=[types.TextContent(type="text", text=f"Query error: {e}")], isError=True)
         )
 
-    # Embed widget HTML so the client can render without a separate fetch.
     widget_resource = _embedded_widget_resource()
-    meta = {
-        "openai.com/widget": widget_resource.model_dump(mode="json"),
-        **_tool_meta(),
-    }
+    meta = {"openai.com/widget": widget_resource.model_dump(mode="json"), **_tool_meta()}
 
-    # Return ONLY items, to be rendered by the widget.
     return types.ServerResult(
         types.CallToolResult(
-            content=[
-                types.TextContent(
-                    type="text",
-                    text=f"Fetched {len(items)} item(s) for News Impact.",
-                )
-            ],
-            structuredContent={"items": items},
+            content=[types.TextContent(type="text", text=f"Fetched {len(items)} item(s) for News Impact.")],
+            structuredContent={"items": items},  # ONLY items
             _meta=meta,
         )
     )
