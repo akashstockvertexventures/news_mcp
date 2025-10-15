@@ -16,7 +16,6 @@ MIME_TYPE = "text/html+skybridge"
 
 @dataclass(frozen=True)
 class NewsWidget:
-    """Widget metadata configuration for the News Impact carousel."""
     identifier: str
     title: str
     template_uri: str
@@ -49,7 +48,7 @@ mcp = FastMCP(
     stateless_http=True,
 )
 
-# ===== Input schema (UNCHANGED) =====
+# ===== Input schema =====
 NEWS_QUERY_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "title": "NewsImpactMongoQueryWithLimit",
@@ -114,7 +113,6 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
 
 # ===== Helpers =====
 def _load_widget_html() -> str:
-    """Load the local HTML file for the News Impact widget."""
     path = os.path.abspath(WIDGET.html_path)
     if not os.path.exists(path):
         return (
@@ -128,7 +126,6 @@ def _load_widget_html() -> str:
 
 
 def _tool_meta() -> Dict[str, Any]:
-    """Return standard metadata used by the tool and resources."""
     return {
         "openai/outputTemplate": WIDGET.template_uri,
         "openai/toolInvocation/invoking": WIDGET.invoking,
@@ -144,7 +141,6 @@ def _tool_meta() -> Dict[str, Any]:
 
 
 def _embedded_widget_resource() -> types.EmbeddedResource:
-    """Create an embedded HTML resource so the host can render the widget inline."""
     return types.EmbeddedResource(
         type="resource",
         resource=types.TextResourceContents(
@@ -157,11 +153,6 @@ def _embedded_widget_resource() -> types.EmbeddedResource:
 
 
 def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
-    """
-    Fetch MongoDB documents with the original projection,
-    then post-process/rename fields to clean keys for the widget:
-    company, symbol, summary, impact, score, sentiment, dt, news_link.
-    """
     # enforce 1..50, default 10
     if not isinstance(limit, int):
         limit = 10
@@ -183,34 +174,7 @@ def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
     }
 
     cur = coll.find(query or {}, projection).sort("dt_tm", DESCENDING).limit(limit)
-
-    cleaned: List[Dict[str, Any]] = []
-    for d in cur:
-        # Safely extract source fields (original schema)
-        company = d.get("symbolmap.Company_Name", "")
-        symbol = d.get("symbolmap.NSE", "")
-        summary = d.get("short summary", "")
-        impact = d.get("impact", "")
-        score = d.get("impact score", "")
-        sentiment = d.get("sentiment", "")
-        dt = d.get("dt_tm", "")
-        news_link = d.get("news link", "")
-
-        # Build renamed structure for the widget/frontend
-        cleaned.append(
-            {
-                "company": company,
-                "symbol": symbol,
-                "summary": summary,
-                "impact": impact,
-                "score": score,
-                "sentiment": sentiment,
-                "dt": dt,
-                "news_link": news_link,
-            }
-        )
-
-    return cleaned
+    return list(cur)
 
 
 # ===== MCP definitions =====
@@ -235,7 +199,6 @@ async def _list_tools() -> List[types.Tool]:
 
 @mcp._mcp_server.list_resources()
 async def _list_resources() -> List[types.Resource]:
-    """Return the static HTML widget resource metadata to the host."""
     return [
         types.Resource(
             name=WIDGET.title,
@@ -250,7 +213,6 @@ async def _list_resources() -> List[types.Resource]:
 
 @mcp._mcp_server.list_resource_templates()
 async def _list_resource_templates() -> List[types.ResourceTemplate]:
-    """Return the resource template metadata for the widget."""
     return [
         types.ResourceTemplate(
             name=WIDGET.title,
@@ -265,7 +227,6 @@ async def _list_resource_templates() -> List[types.ResourceTemplate]:
 
 # ===== Handlers =====
 async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerResult:
-    """Serve the widget HTML when the host requests the template URI."""
     if str(req.params.uri) != WIDGET.template_uri:
         return types.ServerResult(
             types.ReadResourceResult(
@@ -284,10 +245,6 @@ async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerR
 
 
 async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
-    """
-    Run the tool: validate args, fetch+rename docs, and return a widget-producing result.
-    (No plain text content is emitted so the host renders the widget inline.)
-    """
     args = req.params.arguments or {}
 
     # 'query' is required; 'limit' is optional (defaults to 10)
@@ -327,7 +284,6 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
             )
         )
 
-    # Fetch and rename fields
     try:
         docs = _fetch_docs(query, int(limit))
     except Exception as e:
@@ -340,24 +296,23 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
 
     # Embed the widget HTML so the client can render without separate fetch.
     widget_resource = _embedded_widget_resource()
-    call_meta = {
-        # IMPORTANT: put the widget embedding JSON here to render inline
+    meta = {
         "openai.com/widget": widget_resource.model_dump(mode="json"),
-        # Also include the template URI explicitly
-        "openai/outputTemplate": WIDGET.template_uri,
-        "openai/toolInvocation/invoking": WIDGET.invoking,
-        "openai/toolInvocation/invoked": WIDGET.invoked,
-        "openai/widgetAccessible": True,
-        "openai/resultCanProduceWidget": True,
+        **_tool_meta(),
     }
 
     # Provide data under both 'docs' and 'items' for template compatibility.
-    call_result = types.CallToolResult(
-        content=[],  # no plain text; let the host render the widget
-        structuredContent={"docs": docs, "items": docs},
-        _meta=call_meta,
+    return types.ServerResult(
+        types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text", text=f"Fetched {len(docs)} item(s) for News Impact."
+                )
+            ],
+            structuredContent={"docs": docs, "items": docs},
+            _meta=meta,
+        )
     )
-    return types.ServerResult(call_result)
 
 
 # Register handlers
@@ -382,7 +337,6 @@ except Exception:
     pass
 
 if __name__ == "__main__":
-    """Run the FastMCP ASGI app with Uvicorn."""
     import uvicorn
 
     uvicorn.run("mcp_server:app", host="0.0.0.0", port=8000, reload=False)
