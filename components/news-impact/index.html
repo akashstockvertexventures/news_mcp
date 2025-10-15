@@ -6,16 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
-      --bg: #f7f8fb;
-      --card: #ffffff;
-      --ink: #0f172a;
-      --muted: #64748b;
-      --ring: rgba(14,165,233,.25);
-      --border: #e5e7eb;
-      --btn: #0ea5e9;
-      --pos: #059669;
-      --neu: #64748b;
-      --neg: #dc2626;
+      --bg:#f7f8fb;--card:#ffffff;--ink:#0f172a;--muted:#64748b;--ring:rgba(14,165,233,.25);
+      --border:#e5e7eb;--btn:#0ea5e9;--pos:#059669;--neu:#64748b;--neg:#dc2626;
     }
     *{box-sizing:border-box}
     html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -52,7 +44,7 @@
   <div class="wrap">
     <h1>News Impact</h1>
     <div class="hint">company • symbol • dt • sentiment • impact • score • summary • link</div>
-    <div class="controls" aria-hidden="false">
+    <div class="controls" aria-hidden="true">
       <button class="nav" id="prevBtn" aria-label="Previous">⟵ Prev</button>
       <button class="nav" id="nextBtn" aria-label="Next">Next ⟶</button>
     </div>
@@ -60,14 +52,6 @@
   </div>
 
   <script>
-    // ----------------------------
-    // Demo data (local fallback) — NEW FLAT KEYS
-    // ----------------------------
-    const demoItems = [
-      { company:"Sample Co 1", symbol:"SMP1", dt:"2025-10-01T10:00:00Z", summary:"Short summary 1", impact:"Impact text 1", score:6, sentiment:"Positive", link:"#"},
-      { company:"Sample Co 2", symbol:"SMP2", dt:"2025-10-02T09:30:00Z", summary:"Short summary 2", impact:"Impact text 2", score:5, sentiment:"Neutral", link:"#"}
-    ];
-
     // ----------------------------
     // Utilities
     // ----------------------------
@@ -94,6 +78,18 @@
       const newsUrl   = doc?.link ?? "#";
 
       const item = document.createElement("div"); item.className = "item";
+
+      // Build safely (avoid injecting untrusted URLs via innerHTML)
+      const a = document.createElement('a');
+      a.className = 'btn';
+      a.textContent = 'Open news link';
+      try {
+        const u = new URL(String(newsUrl), location.href);
+        if (u.protocol === 'http:' || u.protocol === 'https:') a.href = u.href;
+      } catch {}
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+
       item.innerHTML = `
         <article class="card" tabindex="0" role="group" aria-roledescription="slide" aria-label="${esc(company)} (${esc(symbol)}) – ${esc(sentiment)} – score ${score}/10">
           <div class="row" style="justify-content:space-between">
@@ -119,9 +115,11 @@
           </div>
 
           <div class="row" style="justify-content:space-between;margin-top:6px">
-            <a class="btn" href="${encodeURI(newsUrl)}" target="_blank" rel="noopener noreferrer">Open news link</a>
+            <span data-link-slot></span>
           </div>
         </article>`;
+      // Insert the link safely
+      item.querySelector('[data-link-slot]').appendChild(a);
       return item;
     }
 
@@ -129,75 +127,53 @@
       const host = $("#carousel");
       host.innerHTML = "";
       (Array.isArray(list) ? list : []).forEach(d => host.appendChild(buildCard(d)));
+      const controls = document.querySelector('.controls');
+      if (controls) controls.setAttribute('aria-hidden', 'false');
     }
 
     // ----------------------------
-    // Data sources — ITEMS ONLY
+    // Data: render ONLY on tool result
     // ----------------------------
-
-    // A) Try a one-shot render from structuredContent.items
-    function tryRenderFromStructuredContentOnce(){
-      try {
-        const sc = window.structuredContent;
-        if (Array.isArray(sc?.items) && sc.items.length){
-          render(sc.items);
-          return true;
-        }
-      } catch {}
+    function renderIfItems(payload) {
+      const list = Array.isArray(payload?.items) ? payload.items
+                : (Array.isArray(payload) ? payload : null);
+      if (Array.isArray(list) && list.length) {
+        render(list);
+        return true;
+      }
       return false;
     }
 
-    // B) Subscribe to SDK bridge for items
     function attachOpenAIBridge(){
       if (!window.openai) return;
-
       if (typeof window.openai.onStructuredContentChanged === "function") {
         window.openai.onStructuredContentChanged((sc) => {
-          if (Array.isArray(sc?.items)) render(sc.items);
+          // Only render when items exist (ignore empty updates)
+          renderIfItems(sc);
         });
       }
-
-      // Optional legacy: globals.items
       if (typeof window.openai.onGlobalsChanged === "function") {
         window.openai.onGlobalsChanged((globals) => {
-          if (Array.isArray(globals?.items)) render(globals.items);
+          renderIfItems(globals);
         });
       }
     }
 
-    // C) Optional REST fallback for local dev (expects items array)
-    async function tryFetchFromApi(){
-      try {
-        const url = new URL(window.location.href);
-        const qs = url.search;
-        const res = await fetch(`/api/news${qs}`, { headers: { "accept": "application/json" } });
-        if(res.ok){
-          const data = await res.json();
-          if(Array.isArray(data) && data.length){ render(data); return true; }
-        }
-      } catch {}
-      return false;
-    }
-
     // ----------------------------
-    // Boot
+    // Boot (NO FALLBACKS)
     // ----------------------------
     (async () => {
+      // Keep controls hidden until first render
+      const controls = document.querySelector('.controls');
+      if (controls) controls.setAttribute('aria-hidden', 'true');
+
       attachOpenAIBridge();
 
-      // 1) Prefer MCP structured content (items)
-      if (tryRenderFromStructuredContentOnce()) return;
+      // If the host injected structuredContent synchronously, render once
+      if (renderIfItems(window.structuredContent)) return;
 
-      // 2) Then, try REST (dev)
-      if (await tryFetchFromApi()) return;
-
-      // 3) Finally, fallback to globals.items or demo
-      const initial =
-        (window.globals && Array.isArray(window.globals.items) && window.globals.items) ||
-        (window.items && Array.isArray(window.items) && window.items) ||
-        demoItems;
-
-      render(initial);
+      // Otherwise, remain blank and wait for bridge events.
+      // No REST, no demo data, no globals fallback.
     })();
 
     // ----------------------------
