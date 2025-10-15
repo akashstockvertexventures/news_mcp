@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any, Dict, List
 
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
@@ -27,7 +26,7 @@ class NewsWidget:
 WIDGET = NewsWidget(
     identifier="news-impact",
     title="News Impact Carousel",
-    template_uri="ui://widget/news-impact.html",  # must match HTML below
+    template_uri="ui://widget/news-impact.html",
     invoking="Rendering News Impact",
     invoked="News Impact ready",
     html_path=os.path.join(
@@ -71,8 +70,15 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
                     "type": "object",
                     "description": "Case-insensitive substring match for the company name.",
                     "properties": {
-                        "$regex": {"type": "string"},
-                        "$options": {"type": "string", "enum": ["i"]},
+                        "$regex": {
+                            "type": "string",
+                            "description": "Substring to match within the company name.",
+                        },
+                        "$options": {
+                            "type": "string",
+                            "enum": ["i"],
+                            "description": "Must be 'i' for case-insensitive match.",
+                        },
                     },
                     "required": ["$regex", "$options"],
                 },
@@ -103,13 +109,16 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
     "required": ["query"],
 }
 
+
 # ===== Helpers =====
 def _load_widget_html() -> str:
     path = os.path.abspath(WIDGET.html_path)
     if not os.path.exists(path):
         return (
             "<!doctype html><meta charset='utf-8'><title>News Impact</title>"
-            "<p>index.html not found at: " + path + "</p>"
+            "<p>index.html not found at: "
+            + path
+            + "</p>"
         )
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
@@ -122,7 +131,11 @@ def _tool_meta() -> Dict[str, Any]:
         "openai/toolInvocation/invoked": WIDGET.invoked,
         "openai/widgetAccessible": True,
         "openai/resultCanProduceWidget": True,
-        "annotations": {"destructiveHint": False, "openWorldHint": False, "readOnlyHint": True},
+        "annotations": {
+            "destructiveHint": False,
+            "openWorldHint": False,
+            "readOnlyHint": True,
+        },
     }
 
 
@@ -148,58 +161,38 @@ def _fetch_docs(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
 
     projection = {
         "_id": 0,
-        "symbolmap.Company_Name": 1,  # -> company
-        "symbolmap.NSE": 1,           # -> symbol
-        "dt_tm": 1,                   # -> dt
-        "short summary": 1,           # -> summary
-        "impact": 1,                  # -> impact
-        "impact score": 1,            # -> score
-        "sentiment": 1,               # -> sentiment
-        "news link": 1,               # -> link
+        "symbolmap.Company_Name": 1,
+        "symbolmap.NSE": 1,
+        "dt_tm": 1,
+        "short summary": 1,
+        "impact": 1,
+        "impact score": 1,
+        "sentiment": 1,
+        "news link": 1,
     }
 
     cur = coll.find(query or {}, projection).sort("dt_tm", DESCENDING).limit(limit)
     return list(cur)
 
 
-def _to_iso(dt: Any) -> Optional[str]:
-    if dt is None:
-        return None
-    if isinstance(dt, str):
-        return dt
-    if isinstance(dt, datetime):
-        return dt.isoformat()
-    try:
-        return str(dt)
-    except Exception:
-        return None
-
-
-def _to_num_0_10(x: Any) -> Optional[float]:
-    try:
-        n = float(x)
-        return 0.0 if n < 0 else 10.0 if n > 10 else n
-    except Exception:
-        return None
-
-
 def _normalize_docs(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+    """Flatten and rename Mongo docs to widget-friendly keys."""
+    normalized: List[Dict[str, Any]] = []
     for d in docs:
-        sm = d.get("symbolmap") or {}
-        out.append(
+        symbolmap = d.get("symbolmap", {}) or {}
+        normalized.append(
             {
-                "company": (sm.get("Company_Name") or "").strip(),
-                "symbol": (sm.get("NSE") or "").strip(),
-                "dt": _to_iso(d.get("dt_tm")),
-                "summary": (d.get("short summary") or "").strip(),
-                "impact": (d.get("impact") or "").strip(),
-                "score": _to_num_0_10(d.get("impact score")),
-                "sentiment": (d.get("sentiment") or "").strip() or "Neutral",
-                "link": (d.get("news link") or "").strip(),
+                "company": symbolmap.get("Company_Name") or "",
+                "symbol": symbolmap.get("NSE") or "",
+                "dt": d.get("dt_tm"),
+                "summary": d.get("short summary") or "",
+                "impact": d.get("impact"),
+                "score": d.get("impact score"),
+                "sentiment": d.get("sentiment"),
+                "link": d.get("news link") or "",
             }
         )
-    return out
+    return normalized
 
 
 # ===== MCP definitions =====
@@ -248,7 +241,9 @@ async def _list_resource_templates() -> List[types.ResourceTemplate]:
 async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerResult:
     if str(req.params.uri) != WIDGET.template_uri:
         return types.ServerResult(
-            types.ReadResourceResult(contents=[], _meta={"error": f"Unknown resource: {req.params.uri}"})
+            types.ReadResourceResult(
+                contents=[], _meta={"error": f"Unknown resource: {req.params.uri}"}
+            )
         )
     contents = [
         types.TextResourceContents(
@@ -275,14 +270,17 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
     query = args.get("query") or {}
     limit = args.get("limit", 10)
 
-    allowed = {"sentiment", "symbolmap.NSE", "symbolmap.Company_Name", "impact score"}
-    if not isinstance(query, dict) or any(k not in allowed for k in query.keys()):
+    allowed_keys = {"sentiment", "symbolmap.NSE", "symbolmap.Company_Name", "impact score"}
+    if not isinstance(query, dict) or any(k not in allowed_keys for k in query.keys()):
         return types.ServerResult(
             types.CallToolResult(
                 content=[
                     types.TextContent(
                         type="text",
-                        text="Invalid query keys. Allowed: sentiment, symbolmap.NSE, symbolmap.Company_Name, impact score.",
+                        text=(
+                            "Invalid query keys. Allowed: sentiment, symbolmap.NSE, "
+                            "symbolmap.Company_Name, impact score."
+                        ),
                     )
                 ],
                 isError=True,
@@ -291,19 +289,30 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
 
     try:
         docs = _fetch_docs(query, int(limit))
-        items = _normalize_docs(docs)
+        normalized = _normalize_docs(docs)
     except Exception as e:
         return types.ServerResult(
-            types.CallToolResult(content=[types.TextContent(type="text", text=f"Query error: {e}")], isError=True)
+            types.CallToolResult(
+                content=[types.TextContent(type="text", text=f"Query error: {e}")],
+                isError=True,
+            )
         )
 
     widget_resource = _embedded_widget_resource()
-    meta = {"openai.com/widget": widget_resource.model_dump(mode="json"), **_tool_meta()}
+    meta = {
+        "openai.com/widget": widget_resource.model_dump(mode="json"),
+        **_tool_meta(),
+    }
 
+    # Only return 'items' (no 'docs')
     return types.ServerResult(
         types.CallToolResult(
-            content=[types.TextContent(type="text", text=f"Fetched {len(items)} item(s) for News Impact.")],
-            structuredContent={"items": items},  # ONLY items
+            content=[
+                types.TextContent(
+                    type="text", text=f"Fetched {len(normalized)} item(s) for News Impact."
+                )
+            ],
+            structuredContent={"items": normalized},
             _meta=meta,
         )
     )
