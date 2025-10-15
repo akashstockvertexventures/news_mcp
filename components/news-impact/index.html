@@ -2,220 +2,121 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>News Impact – Standalone Carousel</title>
+  <title>News Impact – Carousel</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root{
-      --bg: #f7f8fb;
-      --card: #ffffff;
-      --ink: #0f172a;
-      --muted: #64748b;
-      --ring: rgba(14,165,233,.25);
-      --border: #e5e7eb;
-      --btn: #0ea5e9;
-      --pos: #059669;
-      --neu: #64748b;
-      --neg: #dc2626;
+    :root {
+      --bg:#f7f8fb;--card:#fff;--ink:#0f172a;--muted:#64748b;
+      --border:#e5e7eb;--btn:#0ea5e9;--pos:#059669;--neu:#64748b;--neg:#dc2626;
+      --ring:rgba(14,165,233,.25)
     }
     *{box-sizing:border-box}
-    html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    html,body{margin:0;background:var(--bg);color:var(--ink);
+      font:400 16px/1.5 Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
     .wrap{max-width:1152px;margin:24px auto;padding:0 16px}
     h1{margin:0 0 8px;font-size:clamp(22px,2.2vw,28px)}
     .hint{color:var(--muted);margin-bottom:18px}
-    .carousel{position:relative;display:grid;grid-auto-flow:column;gap:16px;overflow:auto;scroll-snap-type:x mandatory;padding:2px 2px 10px;-webkit-overflow-scrolling:touch;}
+    .carousel{display:grid;grid-auto-flow:column;gap:16px;overflow:auto;
+      scroll-snap-type:x mandatory;padding:2px 2px 10px;-webkit-overflow-scrolling:touch}
     .carousel::-webkit-scrollbar{height:10px}
     .carousel::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
     .item{scroll-snap-align:center;min-width:min(520px,90vw)}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;box-shadow:0 8px 24px rgba(2,6,23,.07);display:flex;flex-direction:column;gap:10px;outline:0;}
-    .card:focus-visible{box-shadow:0 0 0 6px var(--ring)}
+    .card{background:var(--card);border:1px solid var(--border);
+      border-radius:16px;padding:16px;box-shadow:0 8px 24px rgba(2,6,23,.07);
+      display:flex;flex-direction:column;gap:10px}
     .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
     .company{font-weight:700;font-size:clamp(16px,1.6vw,18px)}
     .summary{color:var(--muted)}
     .impact b{font-weight:700}
-    .chip{border-radius:999px;padding:6px 10px;font-size:12px;font-weight:600;background:#f1f5f9;border:1px solid #e2e8f0;color:#0f172a}
-    .chip.pos{background:rgba(5,150,105,.1);color:var(--pos);border-color:rgba(5,150,105,.25)}
-    .chip.neu{background:rgba(100,116,139,.1);color:var(--neu);border-color:rgba(100,116,139,.25)}
-    .chip.neg{background:rgba(220,38,38,.1);color:var(--neg);border-color:rgba(220,38,38,.25)}
-    .score-head{display:flex;justify-content:space-between;align-items:center}
-    .score-wrap{width:100%;background:#eef2f7;border:1px solid var(--border);border-radius:10px;height:10px;overflow:hidden}
-    .score-bar{height:100%;width:0%;border-radius:10px;background:linear-gradient(90deg,#3b82f6,#06b6d4)}
+    .chip{border-radius:999px;padding:6px 10px;font-size:12px;font-weight:600;
+      background:#f1f5f9;border:1px solid #e2e8f0;color:#0f172a}
+    .chip.pos{background:rgba(5,150,105,.1);color:var(--pos)}
+    .chip.neu{background:rgba(100,116,139,.1);color:var(--neu)}
+    .chip.neg{background:rgba(220,38,38,.1);color:var(--neg)}
     .controls{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
-    button.nav{border:1px solid var(--border);background:#fff;border-radius:12px;padding:8px 12px;cursor:pointer;font-weight:600}
-    button.nav:focus-visible{outline:none;box-shadow:0 0 0 4px var(--ring)}
-    a.btn{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;font-weight:600;text-decoration:none;background:var(--btn);color:#fff;border-radius:12px;border:1px solid var(--btn)}
-    a.btn:hover{filter:brightness(.95)}
-    @media (max-width:640px){ .item{min-width:92vw} }
+    button.nav{border:1px solid var(--border);background:#fff;border-radius:12px;
+      padding:8px 12px;cursor:pointer;font-weight:600}
+    a.btn{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;
+      font-weight:600;text-decoration:none;background:var(--btn);color:#fff;
+      border-radius:12px;border:1px solid var(--btn)}
+    @media(max-width:640px){.item{min-width:92vw}}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>News Impact</h1>
-    <div class="hint">Company, news link, impact, impact score, sentiment, and short summary.</div>
-    <div class="controls" aria-hidden="false">
-      <button class="nav" id="prevBtn" aria-label="Previous">⟵ Prev</button>
-      <button class="nav" id="nextBtn" aria-label="Next">Next ⟶</button>
+    <div class="hint">Company, sentiment, score, and summary.</div>
+    <div class="controls">
+      <button class="nav" id="prevBtn">⟵ Prev</button>
+      <button class="nav" id="nextBtn">Next ⟶</button>
     </div>
-    <div id="carousel" class="carousel" aria-label="News Impact Carousel" tabindex="0"></div>
+    <div id="carousel" class="carousel"></div>
   </div>
 
   <script>
-    // ----------------------------
-    // Demo data (local fallback)
-    // ----------------------------
-    const demoDocs = [
-      { "symbolmap": {"Company_Name":"Sample Co 1"}, "news link":"#", "impact":"Impact text 1", "impact score":6, "sentiment":"Positive", "short summary":"Short summary 1" },
-      { "symbolmap": {"Company_Name":"Sample Co 2"}, "news link":"#", "impact":"Impact text 2", "impact score":5, "sentiment":"Neutral", "short summary":"Short summary 2" }
-    ];
+    const $ = s=>document.querySelector(s);
+    const esc = s=>String(s??"").replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+    const sentimentClass=s=>/pos/i.test(s)?'pos':/neg/i.test(s)?'neg':'neu';
+    const clamp=x=>Math.max(0,Math.min(10,Number(x)||0));
+    const pct=s=>`${s*10}%`;
 
-    // ----------------------------
-    // Utilities
-    // ----------------------------
-    const $ = sel => document.querySelector(sel);
-    function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
-    function sentimentClass(s){ const t=String(s||"").toLowerCase(); if(t.includes("pos"))return"pos"; if(t.includes("neg"))return"neg"; return"neu"; }
-    function clampScore(x){ const n=Number(x); return Number.isFinite(n)?Math.max(0,Math.min(10,n)):0; }
-    function pct(score){ return `${score*10}%`; }
-
-    // ----------------------------
-    // Rendering
-    // ----------------------------
+    /** Build each news card */
     function buildCard(doc){
-      const company   = doc?.symbolmap?.Company_Name ?? "";
-      const newsUrl   = doc?.["news link"] ?? "#";
-      const impact    = doc?.impact ?? "";
-      const score     = clampScore(doc?.["impact score"]);
-      const sentiment = doc?.sentiment ?? "Neutral";
-      const summary   = doc?.["short summary"] ?? "";
+      const company = doc?.company || "";
+      const symbol = doc?.symbol || "";
+      const snt = doc?.sentiment || "Neutral";
+      const score = clamp(doc?.score);
+      const impact = doc?.impact || "";
+      const summary = doc?.summary || "";
+      const link = doc?.news_link || "#";
+      const dt = doc?.dt || "";
 
-      const item = document.createElement("div"); item.className = "item";
-      item.innerHTML = `
-        <article class="card" tabindex="0" role="group" aria-roledescription="slide" aria-label="${esc(company)} – ${esc(sentiment)} – score ${score}/10">
+      const div=document.createElement("div");
+      div.className="item";
+      div.innerHTML=`
+        <article class="card">
           <div class="row">
-            <div class="company">${esc(company)}</div>
-            <span class="chip ${sentimentClass(sentiment)}">${esc(sentiment)}</span>
+            <div class="company">${esc(company)} (${esc(symbol)})</div>
+            <span class="chip ${sentimentClass(snt)}">${esc(snt)}</span>
           </div>
           <div class="summary">${esc(summary)}</div>
-          <div class="impact"><b>Impact:</b> <span>${esc(impact)}</span></div>
-          <div>
-            <div class="score-head">
-              <div class="muted">Impact score</div>
-              <div><b>${score}</b>/10</div>
-            </div>
-            <div class="score-wrap" role="meter" aria-valuemin="0" aria-valuemax="10" aria-valuenow="${score}" aria-label="Impact score">
-              <div class="score-bar" style="width:${pct(score)}"></div>
-            </div>
-          </div>
+          <div class="impact"><b>Impact:</b> ${esc(impact)}</div>
+          <div class="impact"><b>Score:</b> ${score}/10</div>
+          <div class="impact"><b>Date:</b> ${esc(dt)}</div>
           <div class="row" style="justify-content:space-between;margin-top:6px">
-            <a class="btn" href="${encodeURI(newsUrl)}" target="_blank" rel="noopener noreferrer">Open news link</a>
+            <a class="btn" href="${encodeURI(link)}" target="_blank" rel="noopener noreferrer">Open news</a>
           </div>
         </article>`;
-      return item;
+      return div;
     }
 
+    /** Render list of cards */
     function render(list){
-      const host = $("#carousel");
-      host.innerHTML = "";
-      (Array.isArray(list) ? list : []).forEach(d => host.appendChild(buildCard(d)));
+      const host=$("#carousel");
+      host.innerHTML="";
+      (list||[]).forEach(d=>host.appendChild(buildCard(d)));
     }
 
-    // ----------------------------
-    // Data sources
-    // ----------------------------
+    /** Initialize widget data connection */
+    function init(){
+      // prefer structuredContent from MCP
+      const sc = window.structuredContent;
+      if(Array.isArray(sc?.docs)&&sc.docs.length) return render(sc.docs);
+      if(Array.isArray(sc?.items)&&sc.items.length) return render(sc.items);
 
-    // A) MCP: read from structuredContent.docs immediately (once)
-    function tryRenderFromStructuredContentOnce(){
-      try {
-        const sc = window.structuredContent;
-        if (Array.isArray(sc?.docs) && sc.docs.length){
-          render(sc.docs);
-          return true;
-        }
-        // Back-compat: allow "items" too
-        if (Array.isArray(sc?.items) && sc.items.length){
-          render(sc.items);
-          return true;
-        }
-      } catch {}
-      return false;
+      // subscribe to updates from host
+      if(window.openai?.onStructuredContentChanged)
+        window.openai.onStructuredContentChanged(sc=>render(sc.docs||sc.items||[]));
+
+      // fallback (no data yet)
+      render([{company:"No data",impact:"",score:0,sentiment:"Neutral",summary:"No results found."}]);
     }
 
-    // B) Subscribe to SDK bridges (MCP + legacy)
-    function attachOpenAIBridge(){
-      if (!window.openai) return;
+    window.addEventListener("DOMContentLoaded",init);
 
-      // Preferred in MCP/Skybridge
-      if (typeof window.openai.onStructuredContentChanged === "function") {
-        window.openai.onStructuredContentChanged((sc) => {
-          if (Array.isArray(sc?.docs)) render(sc.docs);
-          else if (Array.isArray(sc?.items)) render(sc.items);
-        });
-      }
-
-      // Legacy/globals path
-      if (typeof window.openai.onGlobalsChanged === "function") {
-        window.openai.onGlobalsChanged((globals) => {
-          if (Array.isArray(globals?.docs)) render(globals.docs);
-        });
-      }
-    }
-
-    // C) Optional REST fallback for local dev
-    async function tryFetchFromApi(){
-      try {
-        const url = new URL(window.location.href);
-        const qs = url.search; // pass through any filters
-        const res = await fetch(`/api/news${qs}`, { headers: { "accept": "application/json" } });
-        if(res.ok){
-          const data = await res.json();
-          if(Array.isArray(data) && data.length){ render(data); return true; }
-        }
-      } catch {}
-      return false;
-    }
-
-    // ----------------------------
-    // Boot
-    // ----------------------------
-    (async () => {
-      attachOpenAIBridge();
-
-      // 1) First, prefer MCP structured content
-      if (tryRenderFromStructuredContentOnce()) return;
-
-      // 2) Then, try REST (useful locally; not used by MCP flow)
-      if (await tryFetchFromApi()) return;
-
-      // 3) Finally, fall back to globals or demo data
-      const initial =
-        (window.globals && Array.isArray(window.globals.docs) && window.globals.docs) ||
-        (window.docs && Array.isArray(window.docs) && window.docs) ||
-        demoDocs;
-
-      render(initial);
-    })();
-
-    // ----------------------------
-    // Controls (scroll + drag)
-    // ----------------------------
-    function cardWidth(){
-      const host = $("#carousel");
-      const first = host.querySelector(".item");
-      if(!first) return 400;
-      const gap = parseInt(getComputedStyle(host).gap||"16",10);
-      return first.getBoundingClientRect().width + gap;
-    }
-    function smoothScroll(dir){
-      const host = $("#carousel");
-      host.scrollBy({left: dir * cardWidth(), behavior: "smooth"});
-    }
-    $("#nextBtn").addEventListener("click", ()=> smoothScroll(1));
-    $("#prevBtn").addEventListener("click", ()=> smoothScroll(-1));
-    const host = $("#carousel");
-    let isDown=false, startX=0, startScroll=0;
-    host.addEventListener("pointerdown",(e)=>{isDown=true;startX=e.clientX;startScroll=host.scrollLeft;host.setPointerCapture(e.pointerId);});
-    host.addEventListener("pointermove",(e)=>{ if(!isDown) return; const dx=e.clientX-startX; host.scrollLeft=startScroll-dx; });
-    host.addEventListener("pointerup",()=>{isDown=false;});
-    host.addEventListener("pointercancel",()=>{isDown=false;});
+    // simple nav scroll
+    $("#nextBtn").onclick=()=>$("#carousel").scrollBy({left:520,behavior:"smooth"});
+    $("#prevBtn").onclick=()=>$("#carousel").scrollBy({left:-520,behavior:"smooth"});
   </script>
 </body>
 </html>
