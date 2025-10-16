@@ -173,6 +173,14 @@ def _tool_descriptor_meta() -> Dict[str, Any]:
         },
     }
 
+def _to_iso(x):
+    if isinstance(x, datetime):
+        try:
+            return x.isoformat()
+        except Exception:
+            return str(x)
+    return x if (x is None or isinstance(x, (str, int, float, bool))) else str(x)
+
 
 def _validate_and_normalize_args(args: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
     """Validate incoming args (lightweight, no extra deps)."""
@@ -263,7 +271,7 @@ def _normalize_docs(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             {
                 "company": symbolmap.get("Company_Name", "") or "",
                 "symbol": symbolmap.get("NSE", "") or "",
-                "dt": d.get("dt_tm"),
+                "dt": _to_iso(d.get("dt_tm")),
                 "summary": d.get("short summary", "") or "",
                 "impact": d.get("impact"),
                 "score": d.get("impact score"),
