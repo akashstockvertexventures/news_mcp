@@ -66,8 +66,7 @@ WIDGET = NewsWidget(
     invoking="Fetching News Impact…",
     invoked="News Impact ready",
     html_path=os.path.join(
-        os.path.dirname(__file__),
-        "components", "news-impact", "index.html",
+         os.path.dirname(__file__), "..", "components", "news-impact", "index.html"
     ),
 )
 
