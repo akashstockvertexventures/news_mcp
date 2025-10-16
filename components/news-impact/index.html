@@ -44,7 +44,12 @@
 <body>
   <div class="wrap">
     <h1>News Impact</h1>
-    <div class="hint"><span class="count" id="count" hidden></span> company • symbol • dt • sentiment • impact • score • summary • link</div>
+    <div class="hint">
+      <span class="count" id="count" hidden></span>
+      company • symbol • dt • sentiment • impact • score • summary • link
+    </div>
+    <div id="status" class="hint" style="margin-top:-6px">status: <b>waiting</b></div>
+
     <div class="controls" aria-hidden="true">
       <button class="nav" id="prevBtn" aria-label="Previous">⟵ Prev</button>
       <button class="nav" id="nextBtn" aria-label="Next">Next ⟶</button>
@@ -53,6 +58,12 @@
   </div>
 
   <script>
+    // ----------------------------
+    // Diagnostics
+    // ----------------------------
+    const setStatus = (s) => { const el = document.getElementById('status'); if (el) el.innerHTML = 'status: <b>'+s+'</b>'; };
+    const log = (...a) => console.log('[widget]', ...a);
+
     // ----------------------------
     // Utilities
     // ----------------------------
@@ -85,8 +96,7 @@
         const u = new URL(String(newsUrl), location.href);
         if (u.protocol === 'http:' || u.protocol === 'https:') a.href = u.href;
       } catch {}
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
+      a.target = '_blank'; a.rel = 'noopener noreferrer';
 
       item.innerHTML = `
         <article class="card" tabindex="0" role="group" aria-roledescription="slide" aria-label="${esc(company)} (${esc(symbol)}) – ${esc(sentiment)} – score ${score}/10">
@@ -97,11 +107,8 @@
             </div>
             <div class="muted">${esc(symbol)} • ${esc(fmtDate(when))}</div>
           </div>
-
           <div class="summary">${esc(summary)}</div>
-
           <div class="impact"><b>Impact:</b> <span>${esc(impact)}</span></div>
-
           <div>
             <div class="score-head">
               <div class="muted">Impact score</div>
@@ -111,7 +118,6 @@
               <div class="score-bar" style="width:${pct(score)}"></div>
             </div>
           </div>
-
           <div class="row" style="justify-content:space-between;margin-top:6px">
             <span data-link-slot></span>
           </div>
@@ -133,6 +139,7 @@
         if (hasItems){ count.textContent = `${list.length} result${list.length>1?'s':''}`; count.hidden = false; }
         else { count.hidden = true; }
       }
+      setStatus(hasItems ? `rendered ${list.length} items` : 'waiting');
     }
 
     // ----------------------------
@@ -148,6 +155,7 @@
 
     function renderIfItems(payload){
       const items = extractItems(payload);
+      log('renderIfItems ->', items?.length ?? 0, 'items');
       if (Array.isArray(items) && items.length){
         render(items);
         return true;
@@ -156,31 +164,30 @@
     }
 
     function attachOpenAIBridge(){
-      if (!window.openai) return;
+      if (!window.openai) { log('bridge: openai object missing'); return; }
+      log('bridge: openai present');
 
-      // Current tool output snapshot (if host provides it)
-      try {
-        if (renderIfItems(window.openai.toolOutput)) return;
-      } catch {}
+      // initial snapshots if host provides them
+      try { if (renderIfItems(window.openai.toolOutput)) { log('initial toolOutput used'); return; } } catch {}
 
-      // Structured content updates
       if (typeof window.openai.onStructuredContentChanged === "function") {
         window.openai.onStructuredContentChanged((sc) => {
-          renderIfItems(sc);
+          log('onStructuredContentChanged', sc);
+          if (!renderIfItems(sc)) setStatus('no items (structuredContent)');
         });
       }
 
-      // Tool output stream updates (some hosts use this)
       if (typeof window.openai.onToolOutputChanged === "function") {
         window.openai.onToolOutputChanged((out) => {
-          renderIfItems(out);
+          log('onToolOutputChanged', out);
+          if (!renderIfItems(out)) setStatus('no items (toolOutput)');
         });
       }
 
-      // Globals (rarely used for payload, kept as a no-op guard)
       if (typeof window.openai.onGlobalsChanged === "function") {
         window.openai.onGlobalsChanged((g) => {
-          renderIfItems(g);
+          log('onGlobalsChanged', g);
+          if (!renderIfItems(g)) {/* no-op */}
         });
       }
     }
@@ -192,13 +199,14 @@
       const controls = document.querySelector('.controls');
       if (controls) controls.setAttribute('aria-hidden', 'true');
 
+      log('boot: structuredContent=', window.structuredContent);
+      log('boot: toolOutput=', window.toolOutput);
       attachOpenAIBridge();
 
-      // Synchronous payloads (varies by host)
       if (renderIfItems(window.structuredContent)) return;
       if (renderIfItems(window.toolOutput)) return;
 
-      // Remain blank until a tool result with non-empty items arrives.
+      setStatus('waiting');
     })();
 
     // ----------------------------
