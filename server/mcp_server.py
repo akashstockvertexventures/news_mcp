@@ -76,10 +76,10 @@ class NewsWidget:
 WIDGET = NewsWidget(
     identifier="news-impact",
     title="News Impact Carousel",
-    template_uri="ui://widget/news-impact.html",
+    template_uri="ui://widget/news-impact.html",  # keep identical everywhere
     invoking="Fetching News Impact…",
     invoked="News Impact ready",
-    # NOTE: if mcp_server.py sits next to a 'components' folder (no parent), remove '..,' below.
+    # if your folder layout differs, adjust this path
     html_path=os.path.join(os.path.dirname(__file__), "..", "components", "news-impact", "index.html"),
 )
 
@@ -109,7 +109,7 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
         "query": {
             "type": "object",
             "properties": {
-                "sentiment": {"type": "string", "enum": ["Positive", "Neutral,","Negative"]},  # typo fixed below
+                "sentiment": {"type": "string", "enum": ["Positive", "Neutral", "Negative"]},
                 "symbolmap.NSE": {"type": "string"},
                 "symbolmap.Company_Name": {
                     "type": "object",
@@ -146,8 +146,6 @@ NEWS_QUERY_SCHEMA: Dict[str, Any] = {
     "required": ["query"],
     "additionalProperties": False,
 }
-# fix the small enum typo above:
-NEWS_QUERY_SCHEMA["properties"]["query"]["properties"]["sentiment"]["enum"] = ["Positive", "Neutral", "Negative"]
 
 # ============================================================
 # Helpers
@@ -168,7 +166,7 @@ def _load_widget_html() -> str:
         return f.read()
 
 def _tool_descriptor_meta() -> Dict[str, Any]:
-    """Advertise tool but keep widget locked; we only enable after non-empty results."""
+    """Advertise tool but keep widget locked; enable only after non-empty results."""
     return {
         "openai/outputTemplate": WIDGET.template_uri,
         "openai/toolInvocation/invoking": WIDGET.invoking,
@@ -240,6 +238,7 @@ def _validate_and_normalize_args(args: Dict[str, Any]) -> Tuple[Dict[str, Any], 
         raise ValidationError("'limit' must be an integer between 1 and 50.")
     if not (1 <= limit <= 50):
         raise ValidationError("'limit' must be between 1 and 50.")
+
     return query, limit
 
 def _fetch_from_mongo(query: Dict[str, Any], limit: int) -> List[Dict[str, Any]]:
@@ -307,6 +306,7 @@ async def _handle_read_resource(req: types.ReadResourceRequest) -> types.ServerR
             types.ReadResourceResult(contents=[], _meta={"error": f"Unknown resource: {uri}"})
         )
     html = _load_widget_html()
+    logger.info("[READ_RESOURCE] served html length=%d preview=%r", len(html), html[:80])
     contents = [
         types.TextResourceContents(
             uri=WIDGET.template_uri,
@@ -384,7 +384,14 @@ async def _call_tool_request(req: types.CallToolRequest) -> types.ServerResult:
         "openai/outputTemplate": WIDGET.template_uri,
         "openai/toolInvocation/invoking": WIDGET.invoking,
         "openai/toolInvocation/invoked": WIDGET.invoked,
+        "openai/widgetId": WIDGET.identifier,  # optional helper for hosts
     }
+    logger.info(
+        "[CALL_TOOL] enabling widget (widgetAccessible=%s, resultCanProduceWidget=%s) items=%d",
+        result_meta["openai/widgetAccessible"],
+        result_meta["openai/resultCanProduceWidget"],
+        len(normalized),
+    )
 
     return types.ServerResult(
         types.CallToolResult(
@@ -404,7 +411,6 @@ app = mcp.streamable_http_app()
 # Optional: CORS for local dev / preview
 try:
     from starlette.middleware.cors import CORSMiddleware
-
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
