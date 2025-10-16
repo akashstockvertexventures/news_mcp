@@ -37,13 +37,14 @@
     button.nav:focus-visible{outline:none;box-shadow:0 0 0 4px var(--ring)}
     a.btn{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;font-weight:600;text-decoration:none;background:var(--btn);color:#fff;border-radius:12px;border:1px solid var(--btn)}
     a.btn:hover{filter:brightness(.95)}
+    .count{font-weight:600}
     @media (max-width:640px){ .item{min-width:92vw} }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>News Impact</h1>
-    <div class="hint">company • symbol • dt • sentiment • impact • score • summary • link</div>
+    <div class="hint"><span class="count" id="count" hidden></span> company • symbol • dt • sentiment • impact • score • summary • link</div>
     <div class="controls" aria-hidden="true">
       <button class="nav" id="prevBtn" aria-label="Previous">⟵ Prev</button>
       <button class="nav" id="nextBtn" aria-label="Next">Next ⟶</button>
@@ -60,12 +61,10 @@
     function sentimentClass(s){ const t=String(s||"").toLowerCase(); if(t.includes("pos"))return"pos"; if(t.includes("neg"))return"neg"; return"neu"; }
     function clampScore(x){ const n=Number(x); return Number.isFinite(n)?Math.max(0,Math.min(10,n)):0; }
     function pct(score){ return `${clampScore(score)*10}%`; }
-    function fmtDate(dt){
-      try { return new Date(dt).toLocaleString(); } catch { return String(dt ?? ""); }
-    }
+    function fmtDate(dt){ try { return new Date(dt).toLocaleString(); } catch { return String(dt ?? ""); } }
 
     // ----------------------------
-    // Rendering (expects NEW KEYS)
+    // Rendering
     // ----------------------------
     function buildCard(doc){
       const company   = doc?.company ?? "";
@@ -79,7 +78,6 @@
 
       const item = document.createElement("div"); item.className = "item";
 
-      // Build safely (avoid injecting untrusted URLs via innerHTML)
       const a = document.createElement('a');
       a.className = 'btn';
       a.textContent = 'Open news link';
@@ -118,7 +116,6 @@
             <span data-link-slot></span>
           </div>
         </article>`;
-      // Insert the link safely
       item.querySelector('[data-link-slot]').appendChild(a);
       return item;
     }
@@ -127,18 +124,32 @@
       const host = $("#carousel");
       host.innerHTML = "";
       (Array.isArray(list) ? list : []).forEach(d => host.appendChild(buildCard(d)));
+
+      const hasItems = list && list.length > 0;
       const controls = document.querySelector('.controls');
-      if (controls) controls.setAttribute('aria-hidden', 'false');
+      const count = $("#count");
+      if (controls) controls.setAttribute('aria-hidden', hasItems ? 'false' : 'true');
+      if (count) {
+        if (hasItems){ count.textContent = `${list.length} result${list.length>1?'s':''}`; count.hidden = false; }
+        else { count.hidden = true; }
+      }
     }
 
     // ----------------------------
-    // Data: render ONLY on tool result
+    // Data: render ONLY when items exist
     // ----------------------------
-    function renderIfItems(payload) {
-      const list = Array.isArray(payload?.items) ? payload.items
-                : (Array.isArray(payload) ? payload : null);
-      if (Array.isArray(list) && list.length) {
-        render(list);
+    function extractItems(payload){
+      if (!payload) return null;
+      if (Array.isArray(payload?.items)) return payload.items;
+      if (Array.isArray(payload)) return payload;
+      if (payload?.structuredContent && Array.isArray(payload.structuredContent.items)) return payload.structuredContent.items;
+      return null;
+    }
+
+    function renderIfItems(payload){
+      const items = extractItems(payload);
+      if (Array.isArray(items) && items.length){
+        render(items);
         return true;
       }
       return false;
@@ -146,34 +157,48 @@
 
     function attachOpenAIBridge(){
       if (!window.openai) return;
+
+      // Current tool output snapshot (if host provides it)
+      try {
+        if (renderIfItems(window.openai.toolOutput)) return;
+      } catch {}
+
+      // Structured content updates
       if (typeof window.openai.onStructuredContentChanged === "function") {
         window.openai.onStructuredContentChanged((sc) => {
-          // Only render when items exist (ignore empty updates)
           renderIfItems(sc);
         });
       }
+
+      // Tool output stream updates (some hosts use this)
+      if (typeof window.openai.onToolOutputChanged === "function") {
+        window.openai.onToolOutputChanged((out) => {
+          renderIfItems(out);
+        });
+      }
+
+      // Globals (rarely used for payload, kept as a no-op guard)
       if (typeof window.openai.onGlobalsChanged === "function") {
-        window.openai.onGlobalsChanged((globals) => {
-          renderIfItems(globals);
+        window.openai.onGlobalsChanged((g) => {
+          renderIfItems(g);
         });
       }
     }
 
     // ----------------------------
-    // Boot (NO FALLBACKS)
+    // Boot (stay blank unless items arrive)
     // ----------------------------
     (async () => {
-      // Keep controls hidden until first render
       const controls = document.querySelector('.controls');
       if (controls) controls.setAttribute('aria-hidden', 'true');
 
       attachOpenAIBridge();
 
-      // If the host injected structuredContent synchronously, render once
+      // Synchronous payloads (varies by host)
       if (renderIfItems(window.structuredContent)) return;
+      if (renderIfItems(window.toolOutput)) return;
 
-      // Otherwise, remain blank and wait for bridge events.
-      // No REST, no demo data, no globals fallback.
+      // Remain blank until a tool result with non-empty items arrives.
     })();
 
     // ----------------------------
