@@ -58,15 +58,11 @@
   </div>
 
   <script>
-    // ----------------------------
     // Diagnostics
-    // ----------------------------
     const setStatus = (s) => { const el = document.getElementById('status'); if (el) el.innerHTML = 'status: <b>'+s+'</b>'; };
     const log = (...a) => console.log('[widget]', ...a);
 
-    // ----------------------------
     // Utilities
-    // ----------------------------
     const $ = sel => document.querySelector(sel);
     function esc(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;"); }
     function sentimentClass(s){ const t=String(s||"").toLowerCase(); if(t.includes("pos"))return"pos"; if(t.includes("neg"))return"neg"; return"neu"; }
@@ -74,9 +70,7 @@
     function pct(score){ return `${clampScore(score)*10}%`; }
     function fmtDate(dt){ try { return new Date(dt).toLocaleString(); } catch { return String(dt ?? ""); } }
 
-    // ----------------------------
     // Rendering
-    // ----------------------------
     function buildCard(doc){
       const company   = doc?.company ?? "";
       const symbol    = doc?.symbol ?? "";
@@ -142,9 +136,7 @@
       setStatus(hasItems ? `rendered ${list.length} items` : 'waiting');
     }
 
-    // ----------------------------
-    // Data: render ONLY when items exist
-    // ----------------------------
+    // Data plumbing
     function extractItems(payload){
       if (!payload) return null;
       if (Array.isArray(payload?.items)) return payload.items;
@@ -167,7 +159,6 @@
       if (!window.openai) { log('bridge: openai object missing'); return; }
       log('bridge: openai present');
 
-      // initial snapshots if host provides them
       try { if (renderIfItems(window.openai.toolOutput)) { log('initial toolOutput used'); return; } } catch {}
 
       if (typeof window.openai.onStructuredContentChanged === "function") {
@@ -192,15 +183,14 @@
       }
     }
 
-    // ----------------------------
-    // Boot (stay blank unless items arrive)
-    // ----------------------------
+    // Boot
     (async () => {
       const controls = document.querySelector('.controls');
       if (controls) controls.setAttribute('aria-hidden', 'true');
 
       log('boot: structuredContent=', window.structuredContent);
       log('boot: toolOutput=', window.toolOutput);
+
       attachOpenAIBridge();
 
       if (renderIfItems(window.structuredContent)) return;
@@ -209,9 +199,7 @@
       setStatus('waiting');
     })();
 
-    // ----------------------------
     // Controls (scroll + drag)
-    // ----------------------------
     function cardWidth(){
       const host = $("#carousel");
       const first = host.querySelector(".item");
